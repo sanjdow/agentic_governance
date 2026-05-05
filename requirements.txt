@@ -1,0 +1,35 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Required dependencies — imported by the framework
+# ─────────────────────────────────────────────────────────────────────────────
+
+pyjwt[crypto]>=2.8.0       # RS256 proof signing/verification
+cryptography>=41.0.0       # Fernet encryption for governed cache
+pydantic>=2.5.0            # Typed models throughout
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Test dependencies
+# ─────────────────────────────────────────────────────────────────────────────
+
+pytest>=8.0.0
+pytest-asyncio>=0.23.0
+pytest-cov>=5.0.0
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Optional dependencies — uncomment when integrating with real systems
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Real Redis backend for the governed cache (the framework falls back to
+# an in-memory store if redis is not installed).
+# redis>=5.0.0
+
+# Production SQL filter injection. The reference implementation uses string-
+# based regex injection which is safe only for simple SELECTs. Production
+# deployments MUST use sqlglot for AST-aware filter push-down.
+# sqlglot>=23.0.0
+
+# Run the MCP server as an HTTP service rather than in-process.
+# fastapi>=0.110.0
+# uvicorn>=0.29.0
+
+# Structured logging for production audit trails.
+# structlog>=24.1.0

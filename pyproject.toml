@@ -1,0 +1,89 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agentic-governance"
+version = "0.1.0"
+description = "Pre-authorization governance framework for LLM agentic systems"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+authors = [
+    { name = "Agentic Governance Contributors" },
+]
+keywords = ["llm", "governance", "agentic", "mcp", "data-mesh", "rbac", "pbac"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Information Technology",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Security",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+
+dependencies = [
+    "pyjwt[crypto]>=2.8.0",
+    "cryptography>=41.0.0",
+    "pydantic>=2.5.0",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "pytest-cov>=5.0.0",
+]
+redis = ["redis>=5.0.0"]
+sql = ["sqlglot>=23.0.0"]
+http = [
+    "fastapi>=0.110.0",
+    "uvicorn>=0.29.0",
+]
+all = [
+    "redis>=5.0.0",
+    "sqlglot>=23.0.0",
+    "fastapi>=0.110.0",
+    "uvicorn>=0.29.0",
+    "structlog>=24.1.0",
+]
+
+[project.urls]
+Documentation = "https://github.com/your-org/agentic-governance"
+Source = "https://github.com/your-org/agentic-governance"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = [
+    "core*",
+    "catalog*",
+    "policy_resolver*",
+    "orchestrator*",
+    "mcp_server*",
+    "cache*",
+    "context_governance*",
+    "injection_detection*",
+    "agents*",
+]
+exclude = ["tests*", "examples*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = [
+    "-v",
+    "--strict-markers",
+    "--tb=short",
+]
+
+[tool.coverage.run]
+source = [
+    "core", "catalog", "policy_resolver", "orchestrator",
+    "mcp_server", "cache", "context_governance",
+    "injection_detection", "agents",
+]
+omit = ["*/tests/*", "*/examples/*"]
