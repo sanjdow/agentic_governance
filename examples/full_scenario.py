@@ -4,16 +4,16 @@ examples/full_scenario.py
 Full end-to-end governed agentic workflow demonstration.
 
 Scenario:
-  An Audi Quality Analytics team member (analyst role, Audi brand scope)
+  An Division Quality Analytics team member (analyst role, division brand scope)
   runs a multi-agent query pipeline:
 
-    Agent 1 (Retrieval)    → Fetches Audi quality metrics from Snowflake
+    Agent 1 (Retrieval)    → Fetches division quality metrics from Snowflake
     Agent 2 (Summarisation)→ Summarises the results for reporting
     Agent 3 (Output)       → Formats for export
 
   The framework demonstrates:
     ✓  L1: Catalog-driven policy resolution
-    ✓  L2: Agent eligibility gating (VW agent blocked for Audi-only user)
+    ✓  L2: Agent eligibility gating (group agent blocked for division-scoped user)
     ✓  L3: Authorized Query Proof issuance and signing
     ✓  L4: MCP governance server proof verification + filter push-down
     ✓  Context governance: sensitive data redacted between agents
@@ -107,9 +107,9 @@ def main() -> None:
         allowed_sources=[],
     )
 
-    # Agent with too-high sensitivity for Audi-only users (will be blocked)
+    # Agent with too-high sensitivity for division-scoped users (will be blocked)
     vw_group_agent = AgentContext(
-        agent_id="vw_group_restricted_agent",
+        agent_id="group_restricted_agent",
         agent_type="retrieval",
         max_sensitivity=SensitivityLevel.RESTRICTED,
         allowed_rights=[AccessRight.READ, AccessRight.AGGREGATE],
@@ -124,14 +124,14 @@ def main() -> None:
     separator("3. USER SESSION CONTEXT")
 
     user = UserContext(
-        user_id="analyst_audi_001",
-        roles=["audi_analyst", "quality_viewer"],
-        brand_scope=["audi"],
+        user_id="analyst_div_001",
+        roles=["div_analyst", "quality_viewer"],
+        brand_scope=["brand_b"],
         clearance_level=SensitivityLevel.CONFIDENTIAL,
     )
     session = SessionContext(
         user=user,
-        request_intent="Retrieve Audi quality defect rates for Q1 2025 reporting",
+        request_intent="Retrieve division quality defect rates for Q1 2025 reporting",
     )
     state_store = SessionStateStore(session.session_id)
 
@@ -143,23 +143,23 @@ def main() -> None:
     # ─── L2: Agent Eligibility ────────────────────────────────────────────────
     separator("4. L2 ORCHESTRATOR: AGENT ELIGIBILITY GATING")
 
-    # Audi analyst CANNOT use the VW group restricted agent
-    print("\n  Testing vw_group_restricted_agent (should be BLOCKED):")
+    # division analyst CANNOT use the group restricted agent
+    print("\n  Testing group_restricted_agent (should be BLOCKED):")
     try:
         eligibility_resolver.gate(
-            agent_id="vw_group_restricted_agent",
+            agent_id="group_restricted_agent",
             session=session,
-            requested_asset_ids=["audi_quality_metrics"],
+            requested_asset_ids=["division_quality_metrics"],
         )
     except AgentIneligibleError as e:
         print(f"  ✗ BLOCKED: {e}")
 
-    # Retrieval agent IS eligible for Audi quality data
-    print("\n  Testing retrieval_agent for audi_quality_metrics (should be ELIGIBLE):")
+    # Retrieval agent IS eligible for division quality data
+    print("\n  Testing retrieval_agent for division_quality_metrics (should be ELIGIBLE):")
     decision = eligibility_resolver.gate(
         agent_id="retrieval_agent",
         session=session,
-        requested_asset_ids=["audi_quality_metrics"],
+        requested_asset_ids=["division_quality_metrics"],
     )
     print(f"  ✓ ELIGIBLE: {decision.reason}")
     print(f"    Applied filters: {decision.applied_filters}")
@@ -167,7 +167,7 @@ def main() -> None:
     # ─── L3: Policy Resolver — Request Proof ─────────────────────────────────
     separator("5. L3 POLICY RESOLVER: AUTHORIZED QUERY PROOF")
 
-    query = "SELECT model, defect_code, rate, region, quarter FROM quality.audi_defect_rates WHERE quarter = 'Q1'"
+    query = "SELECT model, defect_code, rate, region, quarter FROM quality.division_defect_rates WHERE quarter = 'Q1'"
 
     print(f"\n  Requesting proof for query:")
     print(f"    {query[:80]}...")
@@ -176,7 +176,7 @@ def main() -> None:
         session=session,
         agent=retrieval_agent,
         query=query,
-        asset_ids=["audi_quality_metrics"],
+        asset_ids=["division_quality_metrics"],
         required_right=AccessRight.READ,
     )
 
@@ -195,7 +195,7 @@ def main() -> None:
         resolver.verify_proof(
             token=proof.token,
             submitted_query=query,
-            claiming_agent_id="vw_group_restricted_agent",  # Wrong agent!
+            claiming_agent_id="group_restricted_agent",  # Wrong agent!
         )
     except Exception as e:
         print(f"  ✗ DELEGATION BLOCKED: {e}")
@@ -205,7 +205,7 @@ def main() -> None:
     try:
         resolver.verify_proof(
             token=proof.token,
-            submitted_query="SELECT * FROM quality.audi_defect_rates",  # Modified!
+            submitted_query="SELECT * FROM quality.division_defect_rates",  # Modified!
             claiming_agent_id=retrieval_agent.agent_id,
         )
     except Exception as e:
@@ -292,8 +292,8 @@ def main() -> None:
 
     # Also demonstrate text-based context governance
     raw_text_output = (
-        "Analysis complete. Defect rates for Audi Q1 2025: A4 at 2%, Q5 at 1%. "
-        "Employee contact: anna.schmidt@audi.de. Salary budget for team: €450,000. "
+        "Analysis complete. Defect rates for division Q1 2025: A4 at 2%, Q5 at 1%. "
+        "Employee contact: j.smith@division-a.example.com. Salary budget for team: €450,000. "
         "Born 1990-01-15. Public finding: defect rates within acceptable range."
     )
     governed_ctx = context_middleware.govern(
@@ -345,7 +345,7 @@ def main() -> None:
   Layer  Component                    Status
   ─────────────────────────────────────────────────────────────
   L1     Data Catalog                 ✓  Policy source of truth
-  L2     Agent Eligibility Resolver   ✓  VW agent blocked for Audi user
+  L2     Agent Eligibility Resolver   ✓  group agent blocked for division user
   L3     Policy Resolver              ✓  Signed proof issued (RS256 JWT)
   L3     Proof — Non-delegable        ✓  Delegation attempt rejected
   L3     Proof — Query-bound          ✓  Query substitution rejected

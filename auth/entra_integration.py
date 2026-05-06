@@ -25,7 +25,7 @@ Usage (production):
     # In your FastAPI/MCP HTTP handler:
     session = gateway.authenticate_request(
         authorization_header=request.headers.get("Authorization"),
-        request_intent="Retrieve Audi quality defect rates",
+        request_intent="Retrieve division quality defect rates",
     )
     # session.user is a fully-mapped UserContext backed by Entra identity
     # session.user.user_id is the Entra OID
@@ -35,7 +35,7 @@ Usage (testing):
     gateway = EntraAuthGateway.for_testing(config, catalog)
     factory = gateway.token_factory  # pre-wired test factory
 
-    token = factory.make_user_token(oid="audi-analyst-oid", groups=["Audi-Analysts"], roles=["DataAnalyst"])
+    token = factory.make_user_token(oid="primary-analyst-oid", groups=["Division-A-Analysts"], roles=["DataAnalyst"])
     session = gateway.authenticate_request(f"Bearer {token}", "Fetch defect rates")
 """
 

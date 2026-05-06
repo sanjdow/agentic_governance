@@ -16,7 +16,7 @@ The mapping is driven by two tables in EntraConfig:
 Why this layer exists
 ---------------------
 Entra ID knows about principals, group memberships, and app roles.
-It knows nothing about data mesh brand scopes, QaSL sensitivity levels,
+It knows nothing about data mesh brand scopes, data mesh sensitivity levels,
 or the distinction between being ALLOWED to authenticate vs. being
 AUTHORIZED to execute a specific query against a specific data asset.
 

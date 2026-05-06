@@ -63,18 +63,18 @@ class GovernedCache:
 
         # Store a result
         cache.set(
-            user_id="sanjay",
+            user_id="user_example",
             agent_id="retrieval_agent",
-            query="SELECT * FROM cost_analytics.group_costs WHERE brand='vw'",
+            query="SELECT * FROM cost_analytics.group_costs WHERE brand='brand_a'",
             data=query_result,
             sensitivity=SensitivityLevel.CONFIDENTIAL,
         )
 
         # Retrieve — returns None if not found, expired, or policy version mismatch
         result = cache.get(
-            user_id="sanjay",
+            user_id="user_example",
             agent_id="retrieval_agent",
-            query="SELECT * FROM cost_analytics.group_costs WHERE brand='vw'",
+            query="SELECT * FROM cost_analytics.group_costs WHERE brand='brand_a'",
         )
     """
 

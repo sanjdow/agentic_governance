@@ -109,7 +109,7 @@ class UserContext(BaseModel):
     """Represents the authenticated user invoking the agent system."""
     user_id: str
     roles: list[str] = Field(default_factory=list)
-    brand_scope: list[str] = Field(default_factory=list)   # e.g. ["audi", "vw"]
+    brand_scope: list[str] = Field(default_factory=list)   # e.g. ["brand_b", "brand_a"]
     clearance_level: SensitivityLevel = SensitivityLevel.INTERNAL
     metadata: dict[str, Any] = Field(default_factory=dict)
 

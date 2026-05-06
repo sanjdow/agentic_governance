@@ -17,7 +17,7 @@ Environment variables:
 Group → policy mappings:
   ENTRA_BRAND_GROUP_MAP   - JSON string mapping Entra group OIDs or display
                             names to brand_scope values, e.g.:
-                            '{"Audi-Analysts": ["audi"], "VW-Group": ["vw","audi"]}'
+                            '{"Division-A-Analysts": ["brand_b"], "Corp-Group-All": ["brand_a","brand_b"]}'
 
   ENTRA_CLEARANCE_ROLE_MAP - JSON string mapping Entra app roles to
                             SensitivityLevel values, e.g.:
@@ -164,9 +164,9 @@ class EntraConfig:
             audience=client_id,
             client_secret=None,
             brand_group_map=brand_group_map or {
-                "Audi-Analysts":  ["audi"],
-                "VW-Group-All":   ["vw", "audi", "porsche", "skoda", "seat"],
-                "Porsche-Team":   ["porsche"],
+                "Division-A-Analysts":  ["brand_b"],
+                "Corp-Group-All":   ["brand_a", "brand_b", "brand_c", "brand_d", "brand_e"],
+                "Division-B-Team":   ["brand_c"],
             },
             clearance_role_map=clearance_role_map or {
                 "DataReader":   "internal",

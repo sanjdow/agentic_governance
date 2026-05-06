@@ -10,7 +10,7 @@ classifications, sensitivity levels, access rights, and regulatory constraints.
 In production, replace this in-memory implementation with calls to:
   - Databricks Unity Catalog REST API
   - Microsoft Purview API
-  - Collibra GDC / Starburst Galaxy Catalog
+  - enterprise data catalog / Starburst Galaxy Catalog
   - Any catalog exposing a runtime-queryable policy API
 
 The key architectural requirement: sub-100ms policy resolution at agent-call frequency.
@@ -167,7 +167,7 @@ class DataCatalog:
         """
         filters: dict[str, str] = {}
 
-        # Brand-level row isolation (e.g. Audi analysts only see Audi rows)
+        # Brand-level row isolation (e.g. division analysts only see division rows)
         if asset.brand_tags and user.brand_scope:
             allowed_brands = [
                 b for b in asset.brand_tags if b in user.brand_scope
@@ -267,20 +267,20 @@ class DataCatalog:
 
 def build_demo_catalog() -> DataCatalog:
     """
-    Returns a pre-populated catalog representative of a VW Group Data Mesh
+    Returns a pre-populated catalog representative of a Enterprise Data Mesh
     environment. Used in examples and tests.
     """
     catalog = DataCatalog()
 
     catalog.register_asset(DataAsset(
-        asset_id="vw_cost_data",
-        name="VW Group Cost Analytics",
+        asset_id="corp_cost_data",
+        name="Corp Cost Analytics",
         source="delta_lake",
         table="cost_analytics.group_costs",
         columns=["brand", "cost_center", "amount", "currency", "fiscal_year"],
         sensitivity=SensitivityLevel.CONFIDENTIAL,
         required_rights=[AccessRight.READ, AccessRight.AGGREGATE],
-        brand_tags=["vw", "audi", "porsche", "skoda", "seat"],
+        brand_tags=["brand_a", "brand_b", "brand_c", "brand_d", "brand_e"],
         # Note: row_filter_template is illustrative — production systems should
         # generate filters via sqlglot rather than string templates.
         row_filter_template=None,  # brand filter is sufficient
@@ -290,18 +290,18 @@ def build_demo_catalog() -> DataCatalog:
     ))
 
     catalog.register_asset(DataAsset(
-        asset_id="audi_quality_metrics",
-        name="Audi Quality Analytics",
+        asset_id="division_quality_metrics",
+        name="Division Quality Analytics",
         source="snowflake",
-        table="quality.audi_defect_rates",
+        table="quality.division_defect_rates",
         columns=["model", "defect_code", "rate", "region", "quarter"],
         sensitivity=SensitivityLevel.CONFIDENTIAL,
         required_rights=[AccessRight.READ],
-        brand_tags=["audi"],
+        brand_tags=["brand_b"],
         row_filter_template=None,
         pii_columns=[],
         consent_required=False,
-        owner="audi_quality_domain",
+        owner="division_quality_domain",
     ))
 
     catalog.register_asset(DataAsset(
@@ -327,7 +327,7 @@ def build_demo_catalog() -> DataCatalog:
         columns=["vin", "timestamp", "speed", "location_lat", "location_lon", "brand"],
         sensitivity=SensitivityLevel.CONFIDENTIAL,
         required_rights=[AccessRight.READ, AccessRight.AGGREGATE],
-        brand_tags=["vw", "audi", "porsche"],
+        brand_tags=["brand_a", "brand_b", "brand_c"],
         pii_columns=["vin", "location_lat", "location_lon"],
         consent_required=True,
         owner="connected_vehicles_domain",
