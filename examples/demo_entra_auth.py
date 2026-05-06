@@ -70,42 +70,42 @@ def main() -> None:
     print("  ✓ Framework components initialized (Entra test mode)")
 
     # ─────────────────────────────────────────────────────────────────────────
-    # Scenario 1: Normal user login — Audi analyst
+    # Scenario 1: Normal user login — division analyst
     # ─────────────────────────────────────────────────────────────────────────
-    sep("SCENARIO 1: AUDI ANALYST — INTERACTIVE LOGIN TOKEN")
+    sep("SCENARIO 1: DIVISION ANALYST — INTERACTIVE LOGIN TOKEN")
 
     # Simulate what Entra issues after a user logs in interactively.
     # The token contains the user's OID, UPN, groups, and app roles.
-    audi_token = factory.make_user_token(
-        oid="a1b2c3d4-0001-0002-0003-audi00000001",
-        upn="analyst@audi.example.com",
-        name="Anna Schmidt",
-        groups=["Audi-Analysts"],      # Maps to brand_scope=["audi"] via config
+    primary_token = factory.make_user_token(
+        oid="a1b2c3d4-0001-0002-0003-primary00001",
+        upn="analyst@division-a.example.com",
+        name="Alex Smith",
+        groups=["Division-A-Analysts"],      # Maps to brand_scope=["brand_b"] via config
         roles=["DataAnalyst"],         # Maps to clearance=CONFIDENTIAL via config
     )
 
     session = gateway.authenticate_request(
-        authorization_header=f"Bearer {audi_token}",
-        request_intent="Retrieve Audi quality defect rates for Q1 reporting",
+        authorization_header=f"Bearer {primary_token}",
+        request_intent="Retrieve division quality defect rates for Q1 reporting",
     )
     user = session.user
     print(f"  Token validated:   {user.metadata.get('upn')}")
     print(f"  Entra OID:         {user.user_id}")
-    print(f"  Brand scope:       {user.brand_scope}   ← derived from 'Audi-Analysts' group")
+    print(f"  Brand scope:       {user.brand_scope}   ← derived from 'Division-A-Analysts' group")
     print(f"  Clearance:         {user.clearance_level}  ← derived from 'DataAnalyst' role")
     print(f"  Roles:             {user.roles}")
 
     # Full governance chain
     print("\n  Running governance chain...")
-    decision = elig.gate("retrieval_agent", session, ["audi_quality_metrics"])
+    decision = elig.gate("retrieval_agent", session, ["division_quality_metrics"])
     print(f"  L2 Eligibility:    ✓ ELIGIBLE ({decision.reason[:50]})")
 
-    query = "SELECT model, defect_code, rate FROM quality.audi_defect_rates WHERE quarter='Q1'"
+    query = "SELECT model, defect_code, rate FROM quality.division_defect_rates WHERE quarter='Q1'"
     proof = resolver.request_proof(
         session=session,
         agent=retrieval_agent,
         query=query,
-        asset_ids=["audi_quality_metrics"],
+        asset_ids=["division_quality_metrics"],
     )
     print(f"  L3 Proof issued:   proof_id={proof.proof_id[:16]}...")
     print(f"  Proof user_id:     {proof.user_id}  (Entra OID — immutable anchor)")
@@ -119,29 +119,29 @@ def main() -> None:
     print(f"  L4 MCP result:     success={result.success}, governed={result.governed}, rows={len(result.data or [])}")
 
     # ─────────────────────────────────────────────────────────────────────────
-    # Scenario 2: VW Group-level user — broader brand scope
+    # Scenario 2: Corp Group-level user — broader brand scope
     # ─────────────────────────────────────────────────────────────────────────
-    sep("SCENARIO 2: VW GROUP USER — BROADER BRAND ACCESS")
+    sep("SCENARIO 2: CORP GROUP USER — BROADER BRAND ACCESS")
 
     vw_token = factory.make_user_token(
-        oid="b2c3d4e5-0001-0002-0003-vwgroup000001",
-        upn="architect@vw-group.example.com",
-        name="Sanjay Patel",
-        groups=["VW-Group-All"],      # Maps to all brands
+        oid="b2c3d4e5-0001-0002-0003-corpgroup0001",
+        upn="architect@corp-group.example.com",
+        name="Jordan Lee",
+        groups=["Corp-Group-All"],      # Maps to all brands
         roles=["DataSteward"],         # Also maps to CONFIDENTIAL
     )
     vw_session = gateway.authenticate_request(
         f"Bearer {vw_token}", "Review cross-brand cost analytics"
     )
     print(f"  User:          {vw_session.user.metadata.get('upn')}")
-    print(f"  Brand scope:   {vw_session.user.brand_scope}  ← full VW Group access")
+    print(f"  Brand scope:   {vw_session.user.brand_scope}  ← full Corp Group access")
     print(f"  Clearance:     {vw_session.user.clearance_level}")
 
     vw_proof = resolver.request_proof(
         session=vw_session,
         agent=retrieval_agent,
         query="SELECT brand, amount, cost_center FROM cost_analytics.group_costs",
-        asset_ids=["vw_cost_data"],
+        asset_ids=["corp_cost_data"],
     )
     print(f"  Proof issued:  brand filters derived = {vw_proof.allowed_filters.get('brand_filter', 'none')}")
 
@@ -179,16 +179,16 @@ def main() -> None:
     # Scenario 4: OBO delegation — policy context loss
     # ─────────────────────────────────────────────────────────────────────────
     sep("SCENARIO 4: OBO DELEGATION — EXPLICIT POLICY CONTEXT LOSS")
-    print("  Orchestrator uses OBO to call downstream agent on behalf of Anna.")
+    print("  Orchestrator uses OBO to call downstream agent on behalf of Alex.")
 
-    # Anna's original token (from Scenario 1)
+    # Alex's original token (from Scenario 1)
     original_claims = {
-        "oid": "a1b2c3d4-0001-0002-0003-audi00000001",
-        "sub": "a1b2c3d4-0001-0002-0003-audi00000001",
-        "upn": "analyst@audi.example.com",
-        "name": "Anna Schmidt",
+        "oid": "a1b2c3d4-0001-0002-0003-primary00001",
+        "sub": "a1b2c3d4-0001-0002-0003-primary00001",
+        "upn": "analyst@division-a.example.com",
+        "name": "Alex Smith",
         "roles": ["DataAnalyst"],
-        "groups": ["Audi-Analysts"],
+        "groups": ["Division-A-Analysts"],
     }
 
     # OBO token — propagates identity but loses roles and groups
@@ -205,7 +205,7 @@ def main() -> None:
 
     obo_user = obo_session.user
     print(f"\n  OBO user_id:      {obo_user.user_id}  (OID preserved ✓)")
-    print(f"  OBO brand_scope:  {obo_user.brand_scope}     ← LOST via OBO — was ['audi']")
+    print(f"  OBO brand_scope:  {obo_user.brand_scope}     ← LOST via OBO — was ['brand_b']")
     print(f"  OBO clearance:    {obo_user.clearance_level}      ← LOST via OBO — was confidential")
     print(f"  OBO roles:        {obo_user.roles}                 ← LOST via OBO — was ['DataAnalyst']")
     print(f"  obo_degraded:     {obo_user.metadata.get('obo_degraded')}")
@@ -215,8 +215,8 @@ def main() -> None:
         resolver.request_proof(
             session=obo_session,
             agent=retrieval_agent,
-            query="SELECT model, rate FROM quality.audi_defect_rates",
-            asset_ids=["audi_quality_metrics"],
+            query="SELECT model, rate FROM quality.division_defect_rates",
+            asset_ids=["division_quality_metrics"],
         )
     except UnauthorizedQueryError as e:
         print(f"  ✗ DENIED: {e}")
@@ -227,7 +227,7 @@ def main() -> None:
     # Scenario 5: The proof as remedy — Entra OID in the proof
     # ─────────────────────────────────────────────────────────────────────────
     sep("SCENARIO 5: THE REMEDY — ENTRA OID EMBEDDED IN THE PROOF")
-    print("  Anna's original proof carries the Entra OID as a tamper-evident anchor.")
+    print("  Alex's original proof carries the Entra OID as a tamper-evident anchor.")
     print("  Even when downstream agents receive only the proof (not the Bearer token),")
     print("  the identity is preserved and verifiable.\n")
 
@@ -258,8 +258,8 @@ def main() -> None:
     print("""
   Scenario  Description                               Outcome
   ────────────────────────────────────────────────────────────────
-  1         Audi analyst — interactive login           ✓ Full access, brand-filtered proof
-  2         VW Group architect — broader scope         ✓ Multi-brand proof with all filters
+  1         division analyst — interactive login           ✓ Full access, brand-filtered proof
+  2         Corp Group architect — broader scope         ✓ Multi-brand proof with all filters
   3         Managed Identity (app-only)                ✗ Blocked — no user identity in token
   4         OBO delegation downstream                  ✗ Degraded — brand/clearance lost
   5         Proof as remedy (OID embedded in JWT)      ✓ Identity + query bound, tamper-evident

@@ -43,11 +43,11 @@ def catalog():
 
 
 @pytest.fixture
-def audi_user():
+def primary_user():
     return UserContext(
         user_id="test_analyst",
-        roles=["audi_analyst"],
-        brand_scope=["audi"],
+        roles=["div_analyst"],
+        brand_scope=["brand_b"],
         clearance_level=SensitivityLevel.CONFIDENTIAL,
     )
 
@@ -55,9 +55,9 @@ def audi_user():
 @pytest.fixture
 def vw_user():
     return UserContext(
-        user_id="vw_analyst",
-        roles=["vw_analyst"],
-        brand_scope=["vw", "audi", "porsche"],
+        user_id="group_analyst",
+        roles=["group_analyst"],
+        brand_scope=["brand_a", "brand_b", "brand_c"],
         clearance_level=SensitivityLevel.CONFIDENTIAL,
     )
 
@@ -96,10 +96,10 @@ def low_clearance_agent():
 
 
 @pytest.fixture
-def audi_session(audi_user):
+def primary_session(primary_user):
     return SessionContext(
-        user=audi_user,
-        request_intent="Test query for Audi quality data",
+        user=primary_user,
+        request_intent="Test query for division quality data",
     )
 
 
@@ -123,26 +123,26 @@ class TestCatalog:
         assert catalog.asset_count() == 5
 
     def test_get_known_asset(self, catalog):
-        asset = catalog.get_asset("audi_quality_metrics")
+        asset = catalog.get_asset("division_quality_metrics")
         assert asset.sensitivity == SensitivityLevel.CONFIDENTIAL
-        assert "audi" in asset.brand_tags
+        assert "brand_b" in asset.brand_tags
 
-    def test_brand_scope_access_granted(self, catalog, audi_user, retrieval_agent):
+    def test_brand_scope_access_granted(self, catalog, primary_user, retrieval_agent):
         allowed, reason = catalog.resolve_access(
-            user=audi_user,
+            user=primary_user,
             agent=retrieval_agent,
-            asset_id="audi_quality_metrics",
+            asset_id="division_quality_metrics",
             required_right=AccessRight.READ,
         )
         assert allowed is True
 
-    def test_brand_scope_intersection_grants_access(self, catalog, audi_user, retrieval_agent):
-        """audi user with brand_scope=[audi] accesses asset with brand_tags=[vw,audi,...]"""
-        # audi is in the intersection — should be allowed
+    def test_brand_scope_intersection_grants_access(self, catalog, primary_user, retrieval_agent):
+        """division user with brand_scope=[brand_b] accesses asset with brand_tags=[brand_a,brand_b,...]"""
+        # brand_b is in the intersection — should be allowed
         allowed, reason = catalog.resolve_access(
-            user=audi_user,
+            user=primary_user,
             agent=retrieval_agent,
-            asset_id="vw_cost_data",
+            asset_id="corp_cost_data",
             required_right=AccessRight.READ,
         )
         assert allowed is True
@@ -158,7 +158,7 @@ class TestCatalog:
         allowed, reason = catalog.resolve_access(
             user=no_scope_user,
             agent=retrieval_agent,
-            asset_id="audi_quality_metrics",
+            asset_id="division_quality_metrics",
             required_right=AccessRight.READ,
         )
         assert allowed is False
@@ -168,21 +168,21 @@ class TestCatalog:
         low_clearance_user = UserContext(
             user_id="intern",
             roles=[],
-            brand_scope=["audi"],
+            brand_scope=["brand_b"],
             clearance_level=SensitivityLevel.INTERNAL,
         )
         allowed, reason = catalog.resolve_access(
             user=low_clearance_user,
             agent=retrieval_agent,
-            asset_id="audi_quality_metrics",
+            asset_id="division_quality_metrics",
             required_right=AccessRight.READ,
         )
         assert allowed is False
         assert "clearance" in reason.lower()
 
-    def test_row_filter_derivation(self, catalog, audi_user):
-        asset = catalog.get_asset("vw_cost_data")
-        filters = catalog.derive_row_filters(audi_user, asset)
+    def test_row_filter_derivation(self, catalog, primary_user):
+        asset = catalog.get_asset("corp_cost_data")
+        filters = catalog.derive_row_filters(primary_user, asset)
         assert "brand_filter" in filters or "row_template_filter" in filters
 
     def test_column_masking_for_pii(self, catalog):
@@ -216,35 +216,35 @@ class TestCatalog:
 
 class TestEligibility:
 
-    def test_eligible_agent_passes(self, catalog, audi_session, retrieval_agent):
+    def test_eligible_agent_passes(self, catalog, primary_session, retrieval_agent):
         elig = AgentEligibilityResolver(catalog)
         elig.register_agent(retrieval_agent)
         decision = elig.gate(
             agent_id="retrieval_agent",
-            session=audi_session,
-            requested_asset_ids=["audi_quality_metrics"],
+            session=primary_session,
+            requested_asset_ids=["division_quality_metrics"],
         )
         from core.models import AgentStatus
         assert decision.status == AgentStatus.ELIGIBLE
 
-    def test_unregistered_agent_is_blocked(self, catalog, audi_session):
+    def test_unregistered_agent_is_blocked(self, catalog, primary_session):
         elig = AgentEligibilityResolver(catalog)
         with pytest.raises(AgentIneligibleError):
             elig.gate(
                 agent_id="ghost_agent",
-                session=audi_session,
-                requested_asset_ids=["audi_quality_metrics"],
+                session=primary_session,
+                requested_asset_ids=["division_quality_metrics"],
             )
 
-    def test_agent_exceeding_user_clearance_blocked(self, catalog, audi_session, restricted_agent):
+    def test_agent_exceeding_user_clearance_blocked(self, catalog, primary_session, restricted_agent):
         """Agent.max_sensitivity (RESTRICTED) > user.clearance_level (CONFIDENTIAL) → blocked."""
         elig = AgentEligibilityResolver(catalog)
         elig.register_agent(restricted_agent)
         with pytest.raises(AgentIneligibleError) as exc:
             elig.gate(
                 agent_id="restricted_agent",
-                session=audi_session,
-                requested_asset_ids=["audi_quality_metrics"],
+                session=primary_session,
+                requested_asset_ids=["division_quality_metrics"],
             )
         assert "clearance" in str(exc.value).lower() or "sensitivity" in str(exc.value).lower()
 
@@ -255,18 +255,18 @@ class TestEligibility:
 
 class TestPolicyResolver:
 
-    QUERY = "SELECT model, defect_code, rate FROM quality.audi_defect_rates"
+    QUERY = "SELECT model, defect_code, rate FROM quality.division_defect_rates"
 
-    def test_proof_issued_for_valid_request(self, resolver, audi_session, retrieval_agent):
+    def test_proof_issued_for_valid_request(self, resolver, primary_session, retrieval_agent):
         proof = resolver.request_proof(
-            session=audi_session,
+            session=primary_session,
             agent=retrieval_agent,
             query=self.QUERY,
-            asset_ids=["audi_quality_metrics"],
+            asset_ids=["division_quality_metrics"],
         )
         assert proof.token != ""
         assert proof.query_hash.startswith("sha256:")
-        assert proof.user_id == audi_session.user.user_id
+        assert proof.user_id == primary_session.user.user_id
 
     def test_proof_denied_for_unauthorized_asset(self, resolver, retrieval_agent):
         from core.models import DataAsset
@@ -284,29 +284,29 @@ class TestPolicyResolver:
                 session=session,
                 agent=retrieval_agent,
                 query=self.QUERY,
-                asset_ids=["audi_quality_metrics"],
+                asset_ids=["division_quality_metrics"],
             )
 
-    def test_proof_verification_succeeds(self, resolver, audi_session, retrieval_agent):
+    def test_proof_verification_succeeds(self, resolver, primary_session, retrieval_agent):
         proof = resolver.request_proof(
-            session=audi_session,
+            session=primary_session,
             agent=retrieval_agent,
             query=self.QUERY,
-            asset_ids=["audi_quality_metrics"],
+            asset_ids=["division_quality_metrics"],
         )
         verified = resolver.verify_proof(
             token=proof.token,
             submitted_query=self.QUERY,
             claiming_agent_id=retrieval_agent.agent_id,
         )
-        assert verified.user_id == audi_session.user.user_id
+        assert verified.user_id == primary_session.user.user_id
 
-    def test_proof_non_delegable(self, resolver, audi_session, retrieval_agent):
+    def test_proof_non_delegable(self, resolver, primary_session, retrieval_agent):
         proof = resolver.request_proof(
-            session=audi_session,
+            session=primary_session,
             agent=retrieval_agent,
             query=self.QUERY,
-            asset_ids=["audi_quality_metrics"],
+            asset_ids=["division_quality_metrics"],
         )
         # Specific exception type — useful for distinguishing failure modes downstream
         with pytest.raises(ProofDelegationError):
@@ -323,26 +323,26 @@ class TestPolicyResolver:
                 claiming_agent_id="other_agent",
             )
 
-    def test_proof_query_bound(self, resolver, audi_session, retrieval_agent):
+    def test_proof_query_bound(self, resolver, primary_session, retrieval_agent):
         proof = resolver.request_proof(
-            session=audi_session,
+            session=primary_session,
             agent=retrieval_agent,
             query=self.QUERY,
-            asset_ids=["audi_quality_metrics"],
+            asset_ids=["division_quality_metrics"],
         )
         with pytest.raises(ProofQueryMismatchError):
             resolver.verify_proof(
                 token=proof.token,
-                submitted_query="SELECT * FROM quality.audi_defect_rates",  # Modified!
+                submitted_query="SELECT * FROM quality.division_defect_rates",  # Modified!
                 claiming_agent_id=retrieval_agent.agent_id,
             )
 
-    def test_proof_revocation(self, resolver, audi_session, retrieval_agent):
+    def test_proof_revocation(self, resolver, primary_session, retrieval_agent):
         proof = resolver.request_proof(
-            session=audi_session,
+            session=primary_session,
             agent=retrieval_agent,
             query=self.QUERY,
-            asset_ids=["audi_quality_metrics"],
+            asset_ids=["division_quality_metrics"],
         )
         resolver.revoke_proof(proof.proof_id)
         with pytest.raises(ProofRevocationError):
@@ -352,15 +352,15 @@ class TestPolicyResolver:
                 claiming_agent_id=retrieval_agent.agent_id,
             )
 
-    def test_session_revocation(self, resolver, audi_session, retrieval_agent):
+    def test_session_revocation(self, resolver, primary_session, retrieval_agent):
         """Session-level revocation invalidates all proofs from that session."""
         proof = resolver.request_proof(
-            session=audi_session,
+            session=primary_session,
             agent=retrieval_agent,
             query=self.QUERY,
-            asset_ids=["audi_quality_metrics"],
+            asset_ids=["division_quality_metrics"],
         )
-        resolver.revoke_all_for_session(audi_session.session_id)
+        resolver.revoke_all_for_session(primary_session.session_id)
         with pytest.raises(ProofRevocationError) as exc:
             resolver.verify_proof(
                 token=proof.token,
@@ -369,21 +369,21 @@ class TestPolicyResolver:
             )
         assert "session" in str(exc.value).lower()
 
-    def test_query_canonicalization_whitespace_insensitive(self, resolver, audi_session, retrieval_agent):
+    def test_query_canonicalization_whitespace_insensitive(self, resolver, primary_session, retrieval_agent):
         """Whitespace differences in equivalent queries should produce the same hash."""
         proof = resolver.request_proof(
-            session=audi_session,
+            session=primary_session,
             agent=retrieval_agent,
-            query="SELECT model, defect_code FROM quality.audi_defect_rates",
-            asset_ids=["audi_quality_metrics"],
+            query="SELECT model, defect_code FROM quality.division_defect_rates",
+            asset_ids=["division_quality_metrics"],
         )
         # Same query with extra whitespace should still verify
         verified = resolver.verify_proof(
             token=proof.token,
-            submitted_query="SELECT  model,   defect_code  FROM  quality.audi_defect_rates",
+            submitted_query="SELECT  model,   defect_code  FROM  quality.division_defect_rates",
             claiming_agent_id=retrieval_agent.agent_id,
         )
-        assert verified.user_id == audi_session.user.user_id
+        assert verified.user_id == primary_session.user.user_id
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -392,7 +392,7 @@ class TestPolicyResolver:
 
 class TestMCPGovernanceServer:
 
-    QUERY = "SELECT model, defect_code, rate FROM quality.audi_defect_rates"
+    QUERY = "SELECT model, defect_code, rate FROM quality.division_defect_rates"
 
     def test_ungoverned_call_rejected(self, mcp_server, retrieval_agent):
         call = MCPToolCall(
@@ -404,12 +404,12 @@ class TestMCPGovernanceServer:
         assert result.success is False
         assert "proof" in result.error.lower()
 
-    def test_governed_call_succeeds(self, mcp_server, resolver, audi_session, retrieval_agent):
+    def test_governed_call_succeeds(self, mcp_server, resolver, primary_session, retrieval_agent):
         proof = resolver.request_proof(
-            session=audi_session,
+            session=primary_session,
             agent=retrieval_agent,
             query=self.QUERY,
-            asset_ids=["audi_quality_metrics"],
+            asset_ids=["division_quality_metrics"],
         )
         call = MCPToolCall(
             tool="query_datasource",
@@ -421,12 +421,12 @@ class TestMCPGovernanceServer:
         assert result.success is True
         assert result.governed is True
 
-    def test_replay_attack_rejected(self, mcp_server, resolver, audi_session, retrieval_agent):
+    def test_replay_attack_rejected(self, mcp_server, resolver, primary_session, retrieval_agent):
         proof = resolver.request_proof(
-            session=audi_session,
+            session=primary_session,
             agent=retrieval_agent,
             query=self.QUERY,
-            asset_ids=["audi_quality_metrics"],
+            asset_ids=["division_quality_metrics"],
         )
         call = MCPToolCall(
             tool="query_datasource",
@@ -443,33 +443,33 @@ class TestMCPGovernanceServer:
     def test_filter_injection_into_query(self):
         server = MCPGovernanceServer.__new__(MCPGovernanceServer)
         q = "SELECT brand, amount FROM cost_analytics.group_costs"
-        filters = {"brand_filter": "brand IN ('audi')"}
+        filters = {"brand_filter": "brand IN ('brand_b')"}
         result = MCPGovernanceServer._inject_where_clauses(q, filters)
         assert "WHERE" in result
-        assert "brand IN ('audi')" in result
+        assert "brand IN ('brand_b')" in result
 
     def test_filter_injection_with_existing_where(self):
         q = "SELECT brand, amount FROM costs WHERE fiscal_year = 2025"
-        filters = {"brand_filter": "brand IN ('audi')"}
+        filters = {"brand_filter": "brand IN ('brand_b')"}
         result = MCPGovernanceServer._inject_where_clauses(q, filters)
-        assert "brand IN ('audi')" in result
+        assert "brand IN ('brand_b')" in result
         assert "fiscal_year = 2025" in result
 
     def test_filter_injection_with_order_by(self):
         q = "SELECT brand FROM costs ORDER BY fiscal_year DESC"
-        filters = {"brand_filter": "brand IN ('audi')"}
+        filters = {"brand_filter": "brand IN ('brand_b')"}
         result = MCPGovernanceServer._inject_where_clauses(q, filters)
         # WHERE should be inserted BEFORE ORDER BY
         assert result.upper().index("WHERE") < result.upper().index("ORDER BY")
 
-    def test_proof_filters_not_mutated_by_execution(self, mcp_server, resolver, audi_session, retrieval_agent):
+    def test_proof_filters_not_mutated_by_execution(self, mcp_server, resolver, primary_session, retrieval_agent):
         """Execution path must not mutate the proof's allowed_filters dict."""
-        query = "SELECT model FROM quality.audi_defect_rates"
+        query = "SELECT model FROM quality.division_defect_rates"
         proof = resolver.request_proof(
-            session=audi_session,
+            session=primary_session,
             agent=retrieval_agent,
             query=query,
-            asset_ids=["audi_quality_metrics"],
+            asset_ids=["division_quality_metrics"],
         )
         original_filters = dict(proof.allowed_filters)  # snapshot
         call = MCPToolCall(
@@ -510,7 +510,7 @@ class TestContextGovernance:
                                  max_sensitivity=SensitivityLevel.INTERNAL,
                                  allowed_rights=[AccessRight.READ], allowed_sources=[])
         ctx = middleware.govern(
-            "Employee salary: €85000. Contact: anna@audi.de. Born 1990-01-15.",
+            "Employee salary: €85000. Contact: j.smith@division-a.example.com. Born 1990-01-15.",
             source, receiving
         )
         assert "[REDACTED" in ctx.safe_text or ctx.redaction_count > 0
@@ -646,21 +646,21 @@ class TestGovernedCache:
 
     def test_cache_set_and_get(self, catalog):
         cache = GovernedCache(catalog, encrypt=True)
-        query = "SELECT * FROM quality.audi_defect_rates"
+        query = "SELECT * FROM quality.division_defect_rates"
         cache.set("user1", "agent1", query, [{"model": "A4"}], SensitivityLevel.INTERNAL)
         result = cache.get("user1", "agent1", query)
         assert result == [{"model": "A4"}]
 
     def test_cache_identity_scoped_different_user(self, catalog):
         cache = GovernedCache(catalog, encrypt=True)
-        query = "SELECT * FROM quality.audi_defect_rates"
+        query = "SELECT * FROM quality.division_defect_rates"
         cache.set("user1", "agent1", query, [{"model": "A4"}], SensitivityLevel.INTERNAL)
         result = cache.get("user2", "agent1", query)  # Different user!
         assert result is None
 
     def test_cache_identity_scoped_different_agent(self, catalog):
         cache = GovernedCache(catalog, encrypt=True)
-        query = "SELECT * FROM quality.audi_defect_rates"
+        query = "SELECT * FROM quality.division_defect_rates"
         cache.set("user1", "agent1", query, [{"model": "A4"}], SensitivityLevel.INTERNAL)
         result = cache.get("user1", "agent2", query)  # Different agent!
         assert result is None
@@ -758,7 +758,7 @@ class TestModelValidation:
             UserContext(
                 user_id="evil'; DROP TABLE users--",
                 roles=[],
-                brand_scope=["audi"],
+                brand_scope=["brand_b"],
                 clearance_level=SensitivityLevel.INTERNAL,
             )
 
@@ -768,7 +768,7 @@ class TestModelValidation:
             UserContext(
                 user_id="user1",
                 roles=[],
-                brand_scope=["audi'); DROP TABLE--"],
+                brand_scope=["brand_b'); DROP TABLE--"],
                 clearance_level=SensitivityLevel.INTERNAL,
             )
 

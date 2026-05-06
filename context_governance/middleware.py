@@ -200,7 +200,7 @@ class ContextGovernanceMiddleware:
       AUDIT   — Pass everything but log all sensitivity violations (dev/testing)
     """
 
-    KNOWN_BRANDS = ["vw", "audi", "porsche", "skoda", "seat", "volkswagen"]
+    KNOWN_BRANDS = ["brand_a", "brand_b", "brand_c", "brand_d", "brand_e", "corp_brand"]
     CHUNK_SIZE = 500   # characters per classification chunk
 
     def __init__(

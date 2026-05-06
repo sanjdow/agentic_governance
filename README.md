@@ -121,7 +121,7 @@ App-only tokens (Managed Identity / client credentials) are rejected at this lay
 carry no user identity and cannot produce a valid `UserContext`.
 
 ### Step 1: User session is established
-A `UserContext` is created carrying the user's identity, roles, brand scope (e.g. `["audi"]`),
+A `UserContext` is created carrying the user's identity, roles, brand scope (e.g. `["brand_b"]`),
 and clearance level. When using Entra ID authentication, this is produced by the `auth/`
 module automatically. The `user_id` is always the Entra OID — not the UPN, which can change.
 This context is the root of every trust decision downstream. Nothing in the framework grants
@@ -132,7 +132,7 @@ The catalog is the single authoritative source for all governance rules. It hold
 
 - **Sensitivity classifications** per asset (`PUBLIC` → `SECRET`)
 - **Access rights** required to query each asset (`READ`, `AGGREGATE`, `EXPORT`, ...)
-- **Brand tags** enabling brand-scoped row-level isolation (e.g. Audi analysts only see Audi rows)
+- **Brand tags** enabling brand-scoped row-level isolation (e.g. division analysts only see division rows)
 - **PII column lists** for column masking at the enforcement layer
 - **Consent state** per data subject (GDPR / CCPA)
 - **Policy version** — a checksum of current catalog state, embedded in every proof
@@ -391,7 +391,7 @@ The core demo runs an end-to-end governed workflow demonstrating:
   10. SUMMARY
 ─────────────────────────────────────────────────────────────────
   L1  Data Catalog              ✓  Policy source of truth
-  L2  Agent Eligibility         ✓  VW agent blocked for Audi user
+  L2  Agent Eligibility         ✓  group agent blocked for division user
   L3  Policy Resolver           ✓  Signed proof issued (RS256 JWT)
   L3  Proof — Non-delegable     ✓  Delegation attempt rejected
   L3  Proof — Query-bound       ✓  Query substitution rejected
@@ -542,7 +542,7 @@ export ENTRA_CLIENT_SECRET="your-client-secret"
 
 # Group → brand scope mapping (JSON)
 # Key: Entra group OID or display name  Value: list of brand_scope values
-export ENTRA_BRAND_GROUP_MAP='{"aabb-ccdd-audi-group-oid": ["audi"], "eeff-0011-vw-all-oid": ["vw","audi","porsche","skoda","seat"]}'
+export ENTRA_BRAND_GROUP_MAP='{"aabb-ccdd-div-a-group-oid": ["brand_b"], "eeff-0011-corp-all-oid": ["brand_a","brand_b","brand_c","brand_d","brand_e"]}'
 
 # App role → clearance level mapping (JSON)
 # Key: Entra app role value  Value: SensitivityLevel string
@@ -681,7 +681,7 @@ issued by the Policy Resolver.
 ## Limitations & Production Notes
 
 - The `catalog/` implementation is an **in-memory stub**. Production deployments
-  should replace it with a real catalog backend (Collibra, Databricks Unity Catalog, Microsoft Purview).
+  should replace it with a real catalog backend (an enterprise data catalog (e.g. Databricks Unity Catalog, Microsoft Purview).
 - The `mcp_server/` is an in-process reference implementation. Production use should
   integrate with your actual MCP transport layer (FastAPI/ASGI).
 - GPU KV cache isolation (vLLM prefix cache) requires infrastructure-layer controls

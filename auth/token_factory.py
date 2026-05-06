@@ -17,9 +17,9 @@ Usage in tests:
     validator.set_test_keypair(factory.public_key_pem)
 
     token = factory.make_user_token(
-        oid="test-oid-audi-analyst",
-        upn="analyst@audi.example.com",
-        groups=["Audi-Analysts"],
+        oid="test-oid-div-analyst",
+        upn="analyst@division-a.example.com",
+        groups=["Division-A-Analysts"],
         roles=["DataAnalyst"],
     )
     claims = validator.validate(token)

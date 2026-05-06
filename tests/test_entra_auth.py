@@ -67,25 +67,25 @@ def retrieval_agent():
 
 
 @pytest.fixture
-def audi_session(gateway, factory):
+def primary_session(gateway, factory):
     token = factory.make_user_token(
-        oid="audi-oid-001",
-        upn="analyst@audi.example.com",
-        groups=["Audi-Analysts"],
+        oid="primary-oid-001",
+        upn="analyst@division-a.example.com",
+        groups=["Division-A-Analysts"],
         roles=["DataAnalyst"],
     )
     return gateway.authenticate_request(f"Bearer {token}", "Test request")
 
 
 @pytest.fixture
-def vw_session(gateway, factory):
+def group_session(gateway, factory):
     token = factory.make_user_token(
-        oid="vw-oid-001",
-        upn="architect@vw.example.com",
-        groups=["VW-Group-All"],
+        oid="group-oid-001",
+        upn="architect@corp-group.example.com",
+        groups=["Corp-Group-All"],
         roles=["DataSteward"],
     )
-    return gateway.authenticate_request(f"Bearer {token}", "VW group request")
+    return gateway.authenticate_request(f"Bearer {token}", "Corp group request")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -154,25 +154,25 @@ class TestTokenValidation:
 
 class TestClaimMapping:
 
-    def test_audi_analyst_gets_correct_brand_scope(self, audi_session):
-        assert audi_session.user.brand_scope == ["audi"]
+    def test_div_analyst_gets_correct_brand_scope(self, primary_session):
+        assert primary_session.user.brand_scope == ["brand_b"]
 
-    def test_vw_group_gets_full_brand_scope(self, vw_session):
-        assert set(vw_session.user.brand_scope) == {"vw", "audi", "porsche", "skoda", "seat"}
+    def test_vw_group_gets_full_brand_scope(self, group_session):
+        assert set(group_session.user.brand_scope) == {"brand_a", "brand_b", "brand_c", "brand_d", "brand_e"}
 
-    def test_data_analyst_role_maps_to_confidential(self, audi_session):
-        assert audi_session.user.clearance_level == SensitivityLevel.CONFIDENTIAL
+    def test_data_analyst_role_maps_to_confidential(self, primary_session):
+        assert primary_session.user.clearance_level == SensitivityLevel.CONFIDENTIAL
 
     def test_data_reader_role_maps_to_internal(self, gateway, factory):
         token = factory.make_user_token(
             oid="reader-oid", upn="reader@example.com",
-            groups=["Audi-Analysts"], roles=["DataReader"],
+            groups=["Division-A-Analysts"], roles=["DataReader"],
         )
         session = gateway.authenticate_request(f"Bearer {token}", "Read")
         assert session.user.clearance_level == SensitivityLevel.INTERNAL
 
     def test_no_role_defaults_to_internal_clearance(self, gateway, factory):
-        token = factory.make_user_token(oid="norole-oid", upn="u@example.com", groups=["Audi-Analysts"])
+        token = factory.make_user_token(oid="norole-oid", upn="u@example.com", groups=["Division-A-Analysts"])
         session = gateway.authenticate_request(f"Bearer {token}", "No role")
         assert session.user.clearance_level == SensitivityLevel.INTERNAL
 
@@ -180,7 +180,7 @@ class TestClaimMapping:
         """User with both DataReader and DataAdmin should get RESTRICTED clearance."""
         token = factory.make_user_token(
             oid="multi-role-oid", upn="admin@example.com",
-            groups=["VW-Group-All"],
+            groups=["Corp-Group-All"],
             roles=["DataReader", "DataAdmin"],   # Admin maps to RESTRICTED
         )
         session = gateway.authenticate_request(f"Bearer {token}", "Multi role")
@@ -227,7 +227,7 @@ class TestOBODelegation:
 
     def test_obo_token_loses_brand_scope(self, gateway, factory):
         original = {"oid": "o", "sub": "o", "upn": "u@example.com",
-                    "roles": ["DataAnalyst"], "groups": ["Audi-Analysts"]}
+                    "roles": ["DataAnalyst"], "groups": ["Division-A-Analysts"]}
         obo_token = factory.make_obo_token(original, "api://downstream/.default")
         obo_session = gateway.authenticate_obo_request(
             f"Bearer {obo_token}", None, "OBO"
@@ -256,7 +256,7 @@ class TestOBODelegation:
     ):
         """Degraded OBO session must not be able to request proofs for brand-tagged assets."""
         original = {"oid": "o", "sub": "o", "upn": "u@example.com",
-                    "roles": ["DataAnalyst"], "groups": ["Audi-Analysts"]}
+                    "roles": ["DataAnalyst"], "groups": ["Division-A-Analysts"]}
         obo_token = factory.make_obo_token(original, "api://downstream/.default")
         obo_session = gateway.authenticate_obo_request(
             f"Bearer {obo_token}", None, "OBO brand access attempt"
@@ -265,8 +265,8 @@ class TestOBODelegation:
             resolver.request_proof(
                 session=obo_session,
                 agent=retrieval_agent,
-                query="SELECT model FROM quality.audi_defect_rates",
-                asset_ids=["audi_quality_metrics"],
+                query="SELECT model FROM quality.division_defect_rates",
+                asset_ids=["division_quality_metrics"],
             )
 
 
@@ -276,26 +276,26 @@ class TestOBODelegation:
 
 class TestEntraGovernanceChain:
 
-    QUERY = "SELECT model, defect_code, rate FROM quality.audi_defect_rates"
+    QUERY = "SELECT model, defect_code, rate FROM quality.division_defect_rates"
 
-    def test_audi_analyst_full_chain(self, audi_session, retrieval_agent, resolver, mcp):
+    def test_div_analyst_full_chain(self, primary_session, retrieval_agent, resolver, mcp):
         """Full chain: Entra auth → eligibility → proof → MCP."""
         elig = AgentEligibilityResolver(build_demo_catalog())
         elig.register_agent(retrieval_agent)
 
-        decision = elig.gate("retrieval_agent", audi_session, ["audi_quality_metrics"])
+        decision = elig.gate("retrieval_agent", primary_session, ["division_quality_metrics"])
         from core.models import AgentStatus
         assert decision.status == AgentStatus.ELIGIBLE
 
         proof = resolver.request_proof(
-            session=audi_session,
+            session=primary_session,
             agent=retrieval_agent,
             query=self.QUERY,
-            asset_ids=["audi_quality_metrics"],
+            asset_ids=["division_quality_metrics"],
         )
         # The proof user_id must be the Entra OID
-        assert proof.user_id == audi_session.user.user_id
-        assert proof.user_id == "audi-oid-001"
+        assert proof.user_id == primary_session.user.user_id
+        assert proof.user_id == "primary-oid-001"
 
         result = mcp.handle_tool_call(MCPToolCall(
             tool="query_datasource",
@@ -306,31 +306,31 @@ class TestEntraGovernanceChain:
         assert result.success is True
         assert result.governed is True
 
-    def test_proof_user_id_is_entra_oid(self, audi_session, retrieval_agent, resolver):
+    def test_proof_user_id_is_entra_oid(self, primary_session, retrieval_agent, resolver):
         """The OID embedded in the proof must equal the Entra OID — the user_id itself."""
         proof = resolver.request_proof(
-            session=audi_session,
+            session=primary_session,
             agent=retrieval_agent,
             query=self.QUERY,
-            asset_ids=["audi_quality_metrics"],
+            asset_ids=["division_quality_metrics"],
         )
         # user_id IS the OID — that's the whole point of using OID not UPN
-        assert proof.user_id == audi_session.user.user_id
-        assert proof.user_id == "audi-oid-001"
+        assert proof.user_id == primary_session.user.user_id
+        assert proof.user_id == "primary-oid-001"
 
     def test_vw_user_sees_brand_filters_for_all_vw_brands(
-        self, vw_session, retrieval_agent, resolver
+        self, group_session, retrieval_agent, resolver
     ):
-        """VW Group user should get brand filters covering all brands in their scope."""
+        """Corp Group user should get brand filters covering all brands in their scope."""
         proof = resolver.request_proof(
-            session=vw_session,
+            session=group_session,
             agent=retrieval_agent,
             query="SELECT brand, amount FROM cost_analytics.group_costs",
-            asset_ids=["vw_cost_data"],
+            asset_ids=["corp_cost_data"],
         )
         brand_filter = proof.allowed_filters.get("brand_filter", "")
-        # All brands in VW-Group-All scope should appear in the filter
-        for brand in vw_session.user.brand_scope:
+        # All brands in Corp-Group-All scope should appear in the filter
+        for brand in group_session.user.brand_scope:
             assert brand in brand_filter
 
     def test_user_without_brand_scope_denied_brand_asset(
@@ -350,27 +350,27 @@ class TestEntraGovernanceChain:
                 session=session,
                 agent=retrieval_agent,
                 query=self.QUERY,
-                asset_ids=["audi_quality_metrics"],
+                asset_ids=["division_quality_metrics"],
             )
 
     def test_override_brand_scope_is_respected(self, gateway, factory, resolver, retrieval_agent):
         """Application can override brand scope for explicit picker scenarios."""
         token = factory.make_user_token(
             oid="multi-brand-oid", upn="u@example.com",
-            groups=["VW-Group-All"],
+            groups=["Corp-Group-All"],
             roles=["DataAnalyst"],
         )
-        # App explicitly constrains to audi only (e.g. the user picked 'Audi' in the UI)
+        # App explicitly constrains to brand_b only (e.g. the user picked one brand in the UI)
         session = gateway.authenticate_request(
-            f"Bearer {token}", "Audi-scoped request",
-            override_brand_scope=["audi"],
+            f"Bearer {token}", "brand_b-scoped request",
+            override_brand_scope=["brand_b"],
         )
-        assert session.user.brand_scope == ["audi"]
-        # Can still access audi data
+        assert session.user.brand_scope == ["brand_b"]
+        # Can still access brand_b data
         proof = resolver.request_proof(
             session=session,
             agent=retrieval_agent,
             query=self.QUERY,
-            asset_ids=["audi_quality_metrics"],
+            asset_ids=["division_quality_metrics"],
         )
         assert proof.user_id == "multi-brand-oid"

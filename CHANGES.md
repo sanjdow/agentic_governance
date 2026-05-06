@@ -187,7 +187,7 @@ lower-case (SQL identifiers can be case-sensitive). Added test
 **Location:** `tests/test_framework.py`
 
 `test_brand_scope_access_denied_wrong_brand` asserted the access was *granted*
-(audi user with audi brand-tagged asset). The test was correct, the name was
+(division user with division brand-tagged asset). The test was correct, the name was
 inverted.
 
 **Fix:** Renamed to `test_brand_scope_intersection_grants_access` and added a

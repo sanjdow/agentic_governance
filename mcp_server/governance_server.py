@@ -357,8 +357,8 @@ class MCPGovernanceServer:
 
         if "cost_analytics" in query_lower or "group_costs" in query_lower:
             return [
-                {"brand": "vw", "cost_center": "R&D", "amount": 1200000, "currency": "EUR", "fiscal_year": 2025},
-                {"brand": "vw", "cost_center": "Manufacturing", "amount": 3400000, "currency": "EUR", "fiscal_year": 2025},
+                {"brand": "brand_a", "cost_center": "R&D", "amount": 1200000, "currency": "EUR", "fiscal_year": 2025},
+                {"brand": "brand_a", "cost_center": "Manufacturing", "amount": 3400000, "currency": "EUR", "fiscal_year": 2025},
             ]
         elif "quality" in query_lower or "defect" in query_lower:
             return [
@@ -367,13 +367,13 @@ class MCPGovernanceServer:
             ]
         elif "employees" in query_lower or "hr" in query_lower:
             return [
-                {"employee_id": "E001", "name": "Anna Schmidt", "department": "Engineering",
+                {"employee_id": "E001", "name": "Alex Smith", "department": "Engineering",
                  "email": "a.schmidt@example.com", "salary": 85000, "birth_date": "1990-01-15"},
             ]
         elif "telemetry" in query_lower:
             return [
-                {"vin": "WVW123", "timestamp": "2025-01-01T10:00:00Z",
-                 "speed": 120, "location_lat": 52.52, "location_lon": 13.40, "brand": "vw"},
+                {"vin": "VEH-001", "timestamp": "2025-01-01T10:00:00Z",
+                 "speed": 120, "location_lat": 52.52, "location_lon": 13.40, "brand": "brand_a"},
             ]
         elif "parts" in query_lower:
             return [
