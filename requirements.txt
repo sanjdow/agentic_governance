@@ -33,3 +33,7 @@ pytest-cov>=5.0.0
 
 # Structured logging for production audit trails.
 # structlog>=24.1.0
+
+## Entra ID authentication
+msal>=1.28.0               # Microsoft Authentication Library (token acquisition)
+# PyJWT and cryptography already listed above — also used for token validation

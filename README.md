@@ -18,6 +18,8 @@ enter the data stack.
 | 6 | Redis cache carries no classification metadata | `cache/` |
 | 7 | KV cache / session isolation at inference layer | `agents/session_isolation.py` |
 | 8 | MCP server acts as decision point, not enforcement point | `mcp_server/` |
+| 9 | Entra ID proves who is calling, not what they may query | `auth/` |
+| 10 | OBO delegation silently drops brand scope and clearance | `auth/claim_mapper.py` |
 
 ---
 
@@ -27,8 +29,8 @@ enter the data stack.
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│                   User Session                               │
-│      identity · brand scope · clearance level                │
+│         Entra ID Auth  →  User Session                       │
+│  OID · UPN · group→brand · role→clearance · OBO constraints  │
 └──────────────────────────┬───────────────────────────────────┘
                            │ session context
                            ▼
@@ -101,10 +103,29 @@ The MCP server does not need to understand policy semantics — it only verifies
 
 ## Architecture Flow — Step by Step
 
+### Step 0: Entra ID authentication (new)
+Before any governance layer runs, an incoming Bearer token is validated against Microsoft
+Entra ID. The `auth/` module handles this in three steps:
+
+1. **Token validation** — the JWT signature is verified against the tenant's JWKS; audience,
+   expiry, and tenant claims are checked.
+2. **Claim mapping** — the validated claims are translated into a `UserContext`:
+   - `oid` (Object ID) becomes `user_id` — the immutable, canonical identity anchor
+   - Group memberships map to `brand_scope` via `brand_group_map` in config
+   - App roles map to `clearance_level` via `clearance_role_map` in config
+3. **OBO constraint modelling** — if the request arrives via an On-Behalf-Of delegation
+   chain, `apply_obo_constraints()` explicitly degrades the context (clearing `brand_scope`,
+   reducing `clearance_level` to `INTERNAL`) to model the policy information lost in OBO.
+
+App-only tokens (Managed Identity / client credentials) are rejected at this layer — they
+carry no user identity and cannot produce a valid `UserContext`.
+
 ### Step 1: User session is established
 A `UserContext` is created carrying the user's identity, roles, brand scope (e.g. `["audi"]`),
-and clearance level. This is the root of every trust decision downstream. Nothing in the
-framework grants more access than what the user's session context permits.
+and clearance level. When using Entra ID authentication, this is produced by the `auth/`
+module automatically. The `user_id` is always the Entra OID — not the UPN, which can change.
+This context is the root of every trust decision downstream. Nothing in the framework grants
+more access than what the user's session context permits.
 
 ### Step 2: L1 — Data Catalog (policy source of truth)
 The catalog is the single authoritative source for all governance rules. It holds:
@@ -337,7 +358,7 @@ Expected output:
 ```
 ============================= test session starts ==============================
 ...
-54 passed in 1.4s
+80 passed in 2.6s
 ```
 
 If you see import errors, confirm you are in the repo root directory and the
@@ -345,13 +366,19 @@ virtual environment is activated (`which python` should point inside `.venv`).
 
 ---
 
-### Step 5 — Run the full demo scenario
+### Step 5 — Run the demos
 
+**Core governance demo** (all 11 controls):
 ```bash
 python examples/full_scenario.py
 ```
 
-This runs an end-to-end governed workflow demonstrating all 11 controls:
+**Entra ID authentication demo** (token validation, claim mapping, OBO, Managed Identity):
+```bash
+python examples/demo_entra_auth.py
+```
+
+The core demo runs an end-to-end governed workflow demonstrating:
 
 ```
 ─────────────────────────────────────────────────────────────────
@@ -418,6 +445,7 @@ pytest tests/ -v --cov=. --cov-report=term-missing
 ```
 agentic_governance/
 ├── core/                   # Shared models, exceptions, type definitions
+├── auth/                   # Entra ID authentication, claim mapping, OBO modelling
 ├── catalog/                # L1 — data catalog (in-memory stub)
 ├── policy_resolver/        # L3 — RS256-signed Authorized Query Proof issuance
 ├── orchestrator/           # L2 — agent eligibility gating before invocation
@@ -426,8 +454,8 @@ agentic_governance/
 ├── injection_detection/    # Prompt injection detection before tool dispatch
 ├── cache/                  # Governed Redis cache with identity-scoped keys
 ├── agents/                 # Session isolation, need-to-know context design
-├── examples/               # End-to-end demo scenario
-├── tests/                  # 49 pytest tests covering all modules
+├── examples/               # End-to-end demos (full_scenario, demo_entra_auth)
+├── tests/                  # 80 pytest tests covering all modules
 ├── requirements.txt        # Dependencies (core + optional)
 ├── CHANGES.md              # Code review findings and applied fixes
 └── README.md               # This file
@@ -462,6 +490,31 @@ Identifier validation rejects characters outside `[A-Za-z0-9_\-\.]`. Check
 that any custom `user_id` or `brand_scope` values in your test fixtures
 only use permitted characters.
 
+**`ValueError: ENTRA_TENANT_ID environment variable is required`**
+Set the required Entra environment variables before running production code:
+```bash
+export ENTRA_TENANT_ID="your-tenant-id"
+export ENTRA_CLIENT_ID="your-app-registration-client-id"
+export ENTRA_AUDIENCE="api://your-client-id"
+```
+For development and tests, no variables are needed — use `EntraConfig.for_testing()`
+and `EntraAuthGateway.for_testing()` which run entirely without Azure credentials.
+
+**`EntraTokenValidationError: Failed to fetch OIDC metadata`**
+The validator cannot reach `login.microsoftonline.com`. Check network connectivity
+and proxy settings. In air-gapped environments, pre-seed the JWKS by calling
+`validator._jwks_client` with a local JWKS endpoint.
+
+**`EntraTokenValidationError: Token tenant '...' does not match`**
+A token from a different Azure tenant was presented. This is blocked by design.
+If multi-tenant support is required, set `validate_tenant=False` and implement
+your own tenant allowlist check after validation.
+
+**`ValueError: Cannot map an app-only token to a UserContext`**
+An LLM agent called using Managed Identity (no user context). Either require the
+agent to use OBO delegation (carrying the invoking user's identity), or use
+`map_to_agent_principal()` and construct an `AgentContext` explicitly.
+
 **Redis connection refused**
 The framework automatically falls back to in-memory cache — you will see:
 ```
@@ -469,6 +522,49 @@ GovernedCache: using in-memory fallback store (no Redis configured)
 ```
 This is expected behaviour when no Redis client is passed. To use Redis,
 see the optional Redis section above.
+
+---
+
+## Entra ID Configuration
+
+For production use, set these environment variables before starting the application.
+For development and testing, none of these are required — the test mode factory
+generates valid tokens without Azure credentials.
+
+```bash
+# Required
+export ENTRA_TENANT_ID="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"   # Azure tenant (directory) ID
+export ENTRA_CLIENT_ID="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"   # App registration client ID
+export ENTRA_AUDIENCE="api://your-client-id"                     # Expected token audience
+
+# Optional — confidential-client flows only
+export ENTRA_CLIENT_SECRET="your-client-secret"
+
+# Group → brand scope mapping (JSON)
+# Key: Entra group OID or display name  Value: list of brand_scope values
+export ENTRA_BRAND_GROUP_MAP='{"aabb-ccdd-audi-group-oid": ["audi"], "eeff-0011-vw-all-oid": ["vw","audi","porsche","skoda","seat"]}'
+
+# App role → clearance level mapping (JSON)
+# Key: Entra app role value  Value: SensitivityLevel string
+export ENTRA_CLEARANCE_ROLE_MAP='{"DataReader": "internal", "DataAnalyst": "confidential", "DataSteward": "confidential", "DataAdmin": "restricted"}'
+
+# OBO downstream scope (optional)
+export ENTRA_OBO_SCOPE="api://downstream-service/.default"
+```
+
+**Finding these values in Azure Portal:**
+- `ENTRA_TENANT_ID`: Azure Portal → Entra ID → Overview → Tenant ID
+- `ENTRA_CLIENT_ID`: Azure Portal → Entra ID → App registrations → your app → Application (client) ID
+- Group OIDs: Azure Portal → Entra ID → Groups → your group → Object ID
+
+**App manifest configuration required for group claims:**
+
+Add this to your app registration manifest in Azure Portal so Entra includes group OIDs in tokens:
+```json
+"groupMembershipClaims": "SecurityGroup"
+```
+
+Without this, `claims.groups` will be empty and `brand_scope` will always be `[]`.
 
 ---
 
@@ -490,7 +586,7 @@ pip install -r requirements.txt
 # 3b. OR install as editable package (recommended if modifying the code)
 # pip install -e ".[test]"
 
-# 4. Verify — all 54 tests should pass
+# 4. Verify — all 80 tests should pass
 pytest tests/ -v
 
 # 5. Run the full governance demo
@@ -500,6 +596,19 @@ python examples/full_scenario.py
 ---
 
 ## Module Overview
+
+### `auth/`
+Microsoft Entra ID authentication integration. Validates Bearer tokens against the
+tenant's JWKS, maps claims to `UserContext` via configurable group → brand and
+role → clearance tables, and explicitly models OBO delegation context loss.
+Includes a test token factory so the full auth pipeline can be exercised without
+Azure credentials.
+
+Four files:
+- `entra_config.py` — configuration and policy mapping tables (from env or code)
+- `token_validator.py` — JWT validation with JWKS caching and test-mode support
+- `claim_mapper.py` — claim → `UserContext` translation and `apply_obo_constraints()`
+- `entra_integration.py` — high-level gateway: `authenticate_request()`, `authenticate_obo_request()`
 
 ### `catalog/`
 In-memory data catalog stub implementing the policy source of truth.
@@ -564,6 +673,8 @@ issued by the Policy Resolver.
 | Redis cache cross-identity | `cache` | Identity-scoped keys + policy-version TTLs |
 | MCP as decision point | `mcp_server` | Enforcement-only — proof verifies, never decides |
 | Context window as shared memory | `agents/session_isolation` | Declared need-to-know via SessionStateStore |
+| Entra ID identity ≠ query compliance | `auth/entra_integration` | OID embedded in Authorized Query Proof; groups → brand scope; roles → clearance |
+| OBO delegation drops policy context | `auth/claim_mapper` | `apply_obo_constraints()` degrades context explicitly; proof carries original context |
 
 ---
 
@@ -580,3 +691,13 @@ issued by the Policy Resolver.
   deployments need a distributed revocation store (Redis, DynamoDB).
 - The context governance classifier is heuristic. Production deployments should
   augment with a fine-tuned NER model for higher precision at acceptable latency.
+- The `auth/` JWKS cache is in-process. Production deployments with multiple instances
+  need a shared cache (Redis) so a key rotation is picked up by all instances simultaneously.
+- When a user belongs to more than 200 Entra groups, Entra omits group claims from the
+  token and sets a `_claim_names` overage indicator. The `claim_mapper` detects this and
+  returns empty `brand_scope` (fail-closed). Production systems should call Microsoft Graph
+  to resolve the full group list in the overage case.
+- OBO delegation loses app role claims. The `apply_obo_constraints()` method models this
+  explicitly, but downstream agents operating on OBO tokens must be designed to work with
+  `brand_scope=[]` and `clearance=INTERNAL` unless the original Authorized Query Proof is
+  passed alongside the OBO token.
