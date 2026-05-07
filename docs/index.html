@@ -1,0 +1,1368 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Agentic Governance — Identity & Data Security in LLM Systems</title>
+<meta name="description" content="A Python reference implementation addressing the core identity and data security gaps in LLM agentic systems — specifically the failure modes of RBAC/PBAC when AI agents enter the data stack.">
+<meta name="og:title" content="Agentic Governance Framework">
+<meta name="og:description" content="Why RBAC, identity tokens, and traditional API governance break down when AI agents enter the data stack.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,300&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* ── CSS variables ── */
+:root {
+  --bg:          #0a0d12;
+  --bg-2:        #0f1318;
+  --bg-3:        #141a22;
+  --bg-card:     #131920;
+  --border:      rgba(255,255,255,0.07);
+  --border-2:    rgba(255,255,255,0.12);
+  --teal:        #00d4b8;
+  --teal-dim:    rgba(0,212,184,0.12);
+  --teal-glow:   rgba(0,212,184,0.25);
+  --amber:       #f5a623;
+  --amber-dim:   rgba(245,166,35,0.12);
+  --red:         #e84040;
+  --red-dim:     rgba(232,64,64,0.1);
+  --green:       #22c55e;
+  --green-dim:   rgba(34,197,94,0.1);
+  --blue:        #3b82f6;
+  --text:        #e8edf2;
+  --text-2:      #9baab8;
+  --text-3:      #5a6b7a;
+  --font-head:   'DM Serif Display', Georgia, serif;
+  --font-body:   'DM Sans', system-ui, sans-serif;
+  --font-mono:   'JetBrains Mono', 'Courier New', monospace;
+}
+
+/* ── Reset & base ── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-behavior: smooth; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-body);
+  font-size: 16px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+::selection { background: var(--teal-dim); color: var(--teal); }
+
+/* ── Noise overlay ── */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.035'/%3E%3C/svg%3E");
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.6;
+}
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: var(--bg-3); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-3); }
+
+/* ── Layout helpers ── */
+.container { max-width: 1100px; margin: 0 auto; padding: 0 24px; position: relative; z-index: 1; }
+.section { padding: 96px 0; }
+.section--tight { padding: 64px 0; }
+.divider { border: none; border-top: 1px solid var(--border); margin: 0; }
+
+/* ── Typography ── */
+h1, h2, h3, h4 { font-family: var(--font-head); font-weight: 400; line-height: 1.15; }
+h1 { font-size: clamp(2.4rem, 5vw, 4rem); }
+h2 { font-size: clamp(1.8rem, 3.5vw, 2.8rem); }
+h3 { font-size: clamp(1.2rem, 2vw, 1.5rem); }
+.overline {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-weight: 500;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--teal);
+  margin-bottom: 16px;
+  display: block;
+}
+.lead { font-size: 1.15rem; color: var(--text-2); line-height: 1.7; max-width: 640px; }
+code, .mono {
+  font-family: var(--font-mono);
+  font-size: 0.875em;
+  background: rgba(0,212,184,0.08);
+  border: 1px solid rgba(0,212,184,0.15);
+  border-radius: 4px;
+  padding: 2px 6px;
+  color: var(--teal);
+}
+pre {
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--teal);
+  border-radius: 8px;
+  padding: 20px 24px;
+  overflow-x: auto;
+  line-height: 1.7;
+  color: var(--text-2);
+}
+pre code { background: none; border: none; padding: 0; font-size: inherit; color: inherit; }
+a { color: var(--teal); text-decoration: none; transition: opacity 0.15s; }
+a:hover { opacity: 0.75; }
+
+/* ── Buttons ── */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 24px;
+  border-radius: 8px;
+  font-family: var(--font-body);
+  font-size: 0.95rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  text-decoration: none;
+  border: none;
+}
+.btn--primary {
+  background: var(--teal);
+  color: var(--bg);
+}
+.btn--primary:hover { opacity: 1; background: #00ffe8; box-shadow: 0 0 24px var(--teal-glow); }
+.btn--ghost {
+  background: transparent;
+  color: var(--text);
+  border: 1px solid var(--border-2);
+}
+.btn--ghost:hover { opacity: 1; border-color: var(--teal); color: var(--teal); background: var(--teal-dim); }
+
+/* ── Nav ── */
+nav {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: rgba(10,13,18,0.92);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-bottom: 1px solid var(--border);
+}
+.nav-inner {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 0 24px;
+  height: 60px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.nav-logo {
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--teal);
+  text-decoration: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.nav-logo::before {
+  content: '⬡';
+  font-size: 1.1rem;
+}
+.nav-links { display: flex; gap: 28px; align-items: center; }
+.nav-links a {
+  font-size: 0.88rem;
+  color: var(--text-2);
+  transition: color 0.15s;
+}
+.nav-links a:hover { color: var(--text); opacity: 1; }
+.nav-gh {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.85rem;
+  color: var(--text);
+  border: 1px solid var(--border-2);
+  padding: 6px 14px;
+  border-radius: 6px;
+  transition: all 0.15s;
+}
+.nav-gh:hover { opacity: 1; border-color: var(--teal); color: var(--teal); background: var(--teal-dim); }
+@media (max-width: 640px) {
+  .nav-links { display: none; }
+}
+
+/* ── Hero ── */
+.hero {
+  padding: 120px 0 96px;
+  position: relative;
+  overflow: hidden;
+}
+.hero-grid {
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(0,212,184,0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0,212,184,0.04) 1px, transparent 1px);
+  background-size: 48px 48px;
+  mask-image: radial-gradient(ellipse 70% 60% at 50% 0%, black 30%, transparent 100%);
+  -webkit-mask-image: radial-gradient(ellipse 70% 60% at 50% 0%, black 30%, transparent 100%);
+}
+.hero-glow {
+  position: absolute;
+  top: -120px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 700px;
+  height: 500px;
+  background: radial-gradient(ellipse, rgba(0,212,184,0.1) 0%, transparent 70%);
+  pointer-events: none;
+}
+.hero-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--teal-dim);
+  border: 1px solid rgba(0,212,184,0.25);
+  border-radius: 100px;
+  padding: 6px 14px;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--teal);
+  margin-bottom: 28px;
+  letter-spacing: 0.08em;
+}
+.hero-tag::before { content: '●'; font-size: 0.5rem; animation: pulse 2s infinite; }
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+.hero h1 { margin-bottom: 24px; }
+.hero h1 em { font-style: italic; color: var(--teal); }
+.hero .lead { margin-bottom: 40px; }
+.hero-actions { display: flex; gap: 12px; flex-wrap: wrap; }
+.hero-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1px;
+  margin-top: 80px;
+  background: var(--border);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.hero-stat {
+  background: var(--bg-card);
+  padding: 28px 24px;
+  text-align: center;
+}
+.hero-stat-num {
+  font-family: var(--font-mono);
+  font-size: 2rem;
+  font-weight: 600;
+  color: var(--teal);
+  display: block;
+  margin-bottom: 4px;
+}
+.hero-stat-label { font-size: 0.82rem; color: var(--text-2); }
+@media (max-width: 600px) {
+  .hero-stats { grid-template-columns: 1fr; }
+  .hero { padding: 80px 0 60px; }
+}
+
+/* ── Problem ── */
+.problem-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px;
+  background: var(--border);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  margin-top: 48px;
+}
+.problem-col { background: var(--bg-card); padding: 36px 32px; }
+.problem-col--bad .problem-label { color: var(--red); }
+.problem-col--good .problem-label { color: var(--green); }
+.problem-label {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.problem-col h3 { margin-bottom: 12px; font-size: 1.1rem; color: var(--text); }
+.problem-items { list-style: none; margin-top: 20px; }
+.problem-items li {
+  font-size: 0.9rem;
+  color: var(--text-2);
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  line-height: 1.5;
+}
+.problem-items li:last-child { border-bottom: none; }
+.problem-items li .icon { flex-shrink: 0; margin-top: 2px; font-size: 0.85rem; }
+.icon-x { color: var(--red); }
+.icon-check { color: var(--green); }
+@media (max-width: 720px) {
+  .problem-grid { grid-template-columns: 1fr; }
+}
+
+/* ── Architecture ── */
+.arch-flow {
+  margin-top: 56px;
+  position: relative;
+}
+.arch-layer {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-card);
+  padding: 24px 28px;
+  margin-bottom: 0;
+  position: relative;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  cursor: default;
+}
+.arch-layer:hover {
+  border-color: var(--border-2);
+  box-shadow: 0 0 24px rgba(0,0,0,0.3);
+}
+.arch-layer--l0 { border-left: 3px solid #8b5cf6; }
+.arch-layer--l1 { border-left: 3px solid var(--teal); }
+.arch-layer--l2 { border-left: 3px solid var(--blue); }
+.arch-layer--l3 { border-left: 3px solid var(--amber); }
+.arch-layer--l4 { border-left: 3px solid var(--green); }
+.arch-layer--cross { border-left: 3px solid var(--text-3); border-style: dashed; }
+.arch-layer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.arch-layer-badge {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  padding: 3px 10px;
+  border-radius: 100px;
+  text-transform: uppercase;
+}
+.badge-l0 { background: rgba(139,92,246,0.15); color: #a78bfa; border: 1px solid rgba(139,92,246,0.25); }
+.badge-l1 { background: var(--teal-dim); color: var(--teal); border: 1px solid rgba(0,212,184,0.25); }
+.badge-l2 { background: rgba(59,130,246,0.12); color: #60a5fa; border: 1px solid rgba(59,130,246,0.25); }
+.badge-l3 { background: var(--amber-dim); color: var(--amber); border: 1px solid rgba(245,166,35,0.25); }
+.badge-l4 { background: var(--green-dim); color: var(--green); border: 1px solid rgba(34,197,94,0.25); }
+.badge-cross { background: rgba(255,255,255,0.05); color: var(--text-3); border: 1px solid var(--border); }
+.arch-layer-title {
+  font-family: var(--font-head);
+  font-size: 1.05rem;
+  color: var(--text);
+  margin-bottom: 4px;
+}
+.arch-layer-desc { font-size: 0.88rem; color: var(--text-2); }
+.arch-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 12px;
+}
+.arch-tag {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--text-3);
+  background: rgba(255,255,255,0.04);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 3px 8px;
+}
+.arch-connector {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 0;
+  gap: 8px;
+}
+.arch-connector-line {
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+  max-width: 160px;
+}
+.arch-connector-label {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  color: var(--text-3);
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+}
+.arch-connector-arrow {
+  width: 28px;
+  height: 28px;
+  border-left: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  margin: -6px auto 0;
+  transform: rotate(-45deg);
+  position: relative;
+  left: 0;
+}
+.arch-connector-vert {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 4px 0;
+}
+.arch-connector-vert-line {
+  width: 1px;
+  height: 28px;
+  background: linear-gradient(to bottom, var(--border), var(--teal-dim));
+}
+.arch-connector-vert-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--teal);
+  box-shadow: 0 0 8px var(--teal);
+}
+.arch-cross-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-top: 12px;
+}
+.arch-cross-item {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 14px 16px;
+}
+.arch-cross-title { font-size: 0.85rem; font-weight: 500; color: var(--text); margin-bottom: 4px; }
+.arch-cross-desc { font-size: 0.78rem; color: var(--text-2); line-height: 1.5; }
+@media (max-width: 640px) {
+  .arch-cross-grid { grid-template-columns: 1fr; }
+  .arch-layer { padding: 18px 20px; }
+}
+
+/* ── Proof section ── */
+.proof-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 32px;
+  margin-top: 48px;
+}
+.proof-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.proof-card-header {
+  padding: 20px 24px 16px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.proof-card-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.proof-card h3 { font-size: 1rem; font-family: var(--font-body); font-weight: 600; }
+.proof-card-body { padding: 20px 24px; }
+.proof-props { list-style: none; }
+.proof-props li {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.proof-props li:last-child { border-bottom: none; }
+.prop-key {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  color: var(--teal);
+}
+.prop-val { font-size: 0.85rem; color: var(--text-2); }
+@media (max-width: 720px) {
+  .proof-grid { grid-template-columns: 1fr; }
+}
+
+/* ── Failure modes ── */
+.failures-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+  margin-top: 48px;
+}
+.failure-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 22px 24px;
+  transition: border-color 0.2s;
+  position: relative;
+  overflow: hidden;
+}
+.failure-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--red);
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+.failure-card:hover { border-color: rgba(232,64,64,0.3); }
+.failure-card:hover::before { opacity: 1; }
+.failure-num {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  color: var(--text-3);
+  margin-bottom: 8px;
+}
+.failure-title { font-size: 0.95rem; font-weight: 600; color: var(--text); margin-bottom: 6px; }
+.failure-desc { font-size: 0.84rem; color: var(--text-2); line-height: 1.55; }
+.failure-module {
+  margin-top: 10px;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--teal);
+}
+@media (max-width: 640px) {
+  .failures-grid { grid-template-columns: 1fr; }
+}
+
+/* ── Entra section ── */
+.entra-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  margin-top: 48px;
+}
+.entra-col {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.entra-col-header {
+  padding: 16px 22px;
+  border-bottom: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.entra-col--provides .entra-col-header { color: var(--green); background: var(--green-dim); }
+.entra-col--cannot .entra-col-header { color: var(--red); background: var(--red-dim); }
+.entra-items { list-style: none; padding: 8px 0; }
+.entra-item { padding: 14px 22px; border-bottom: 1px solid var(--border); }
+.entra-item:last-child { border-bottom: none; }
+.entra-item-title { font-size: 0.9rem; font-weight: 500; color: var(--text); margin-bottom: 4px; }
+.entra-item-desc { font-size: 0.82rem; color: var(--text-2); line-height: 1.5; }
+.entra-callout {
+  margin-top: 24px;
+  background: rgba(0,212,184,0.06);
+  border: 1px solid rgba(0,212,184,0.2);
+  border-radius: 10px;
+  padding: 20px 24px;
+  font-size: 0.9rem;
+  color: var(--text-2);
+  line-height: 1.6;
+}
+.entra-callout strong { color: var(--teal); }
+@media (max-width: 720px) {
+  .entra-grid { grid-template-columns: 1fr; }
+}
+
+/* ── Modules ── */
+.modules-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-top: 48px;
+}
+.module-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 22px 20px;
+  transition: border-color 0.2s, transform 0.2s;
+}
+.module-card:hover { border-color: var(--border-2); transform: translateY(-2px); }
+.module-dir {
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--teal);
+  margin-bottom: 6px;
+}
+.module-name { font-size: 0.95rem; font-weight: 600; color: var(--text); margin-bottom: 6px; }
+.module-desc { font-size: 0.82rem; color: var(--text-2); line-height: 1.5; }
+@media (max-width: 800px) {
+  .modules-grid { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 500px) {
+  .modules-grid { grid-template-columns: 1fr; }
+}
+
+/* ── Getting started ── */
+.gs-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 32px;
+  margin-top: 48px;
+}
+.gs-steps { list-style: none; counter-reset: steps; }
+.gs-step {
+  counter-increment: steps;
+  display: flex;
+  gap: 16px;
+  margin-bottom: 28px;
+}
+.gs-step::before {
+  content: counter(steps);
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--teal-dim);
+  border: 1px solid rgba(0,212,184,0.3);
+  color: var(--teal);
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 2px;
+}
+.gs-step-content h4 { font-family: var(--font-body); font-size: 0.95rem; font-weight: 600; margin-bottom: 4px; }
+.gs-step-content p { font-size: 0.85rem; color: var(--text-2); }
+@media (max-width: 720px) {
+  .gs-grid { grid-template-columns: 1fr; }
+}
+
+/* ── CTA ── */
+.cta {
+  text-align: center;
+  padding: 96px 0;
+  position: relative;
+  overflow: hidden;
+}
+.cta-glow {
+  position: absolute;
+  bottom: -100px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 600px;
+  height: 400px;
+  background: radial-gradient(ellipse, rgba(0,212,184,0.08) 0%, transparent 70%);
+  pointer-events: none;
+}
+.cta h2 { margin-bottom: 16px; }
+.cta .lead { margin: 0 auto 40px; text-align: center; }
+.cta-actions { display: flex; justify-content: center; gap: 12px; flex-wrap: wrap; }
+
+/* ── Footer ── */
+footer {
+  border-top: 1px solid var(--border);
+  padding: 40px 0;
+}
+.footer-inner {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 0 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+.footer-logo {
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  color: var(--text-3);
+}
+.footer-links { display: flex; gap: 24px; }
+.footer-links a { font-size: 0.82rem; color: var(--text-3); }
+.footer-links a:hover { color: var(--teal); opacity: 1; }
+
+/* ── Scroll reveal animation ── */
+.reveal {
+  opacity: 0;
+  transform: translateY(20px);
+  transition: opacity 0.55s ease, transform 0.55s ease;
+}
+.reveal.visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* ── Animated gradient border on hover ── */
+.glow-border {
+  position: relative;
+}
+.glow-border::after {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  background: linear-gradient(135deg, var(--teal), transparent, var(--blue));
+  z-index: -1;
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+.glow-border:hover::after { opacity: 0.4; }
+</style>
+</head>
+<body>
+
+<!-- ── Navigation ── -->
+<nav>
+  <div class="nav-inner">
+    <a class="nav-logo" href="#">agentic_governance</a>
+    <div class="nav-links">
+      <a href="#architecture">Architecture</a>
+      <a href="#proof">Query Proof</a>
+      <a href="#entra">Entra ID</a>
+      <a href="#modules">Modules</a>
+      <a href="#start">Get Started</a>
+    </div>
+    <a href="https://github.com/sanjdow/agentic_governance" target="_blank" rel="noopener" class="nav-gh">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"/></svg>
+      GitHub
+    </a>
+  </div>
+</nav>
+
+<!-- ── Hero ── -->
+<section class="hero">
+  <div class="hero-grid"></div>
+  <div class="hero-glow"></div>
+  <div class="container">
+    <div class="hero-tag">Python Reference Implementation</div>
+    <h1>AI Agents Need More Than<br><em>Identity Tokens</em></h1>
+    <p class="lead">
+      A Python framework addressing the governance gap where RBAC and identity tokens 
+      break down — when LLM agents generate queries dynamically, chain calls across 
+      permission boundaries, and accumulate data outside any governed store.
+    </p>
+    <div class="hero-actions">
+      <a href="https://github.com/sanjdow/agentic_governance" target="_blank" rel="noopener" class="btn btn--primary">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"/></svg>
+        View on GitHub
+      </a>
+      <a href="#architecture" class="btn btn--ghost">Explore Architecture</a>
+    </div>
+    <div class="hero-stats reveal">
+      <div class="hero-stat">
+        <span class="hero-stat-num">4</span>
+        <span class="hero-stat-label">Governance layers<br>(L1 → L4)</span>
+      </div>
+      <div class="hero-stat">
+        <span class="hero-stat-num">10</span>
+        <span class="hero-stat-label">Failure modes<br>addressed</span>
+      </div>
+      <div class="hero-stat">
+        <span class="hero-stat-num">80</span>
+        <span class="hero-stat-label">Pytest tests<br>passing</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<hr class="divider">
+
+<!-- ── Core Problem ── -->
+<section class="section" id="problem">
+  <div class="container">
+    <span class="overline reveal">The Core Problem</span>
+    <h2 class="reveal">Tokens Prove Identity.<br>Not Query Compliance.</h2>
+    <p class="lead reveal">
+      Traditional API governance assumes deterministic callers making predictable requests.
+      LLM agents are neither. They generate SQL at runtime, chain calls across permission
+      boundaries, and accumulate data in context windows that no policy engine can see.
+    </p>
+    <div class="problem-grid reveal">
+      <div class="problem-col problem-col--bad">
+        <div class="problem-label">✕ &nbsp;Traditional API Governance</div>
+        <h3>Reactive — assumes determinism</h3>
+        <p style="font-size:0.87rem;color:var(--text-2);">A token grants entry. Any subsequent query is presumed acceptable unless the receiving system detects a violation. Policy logic must be replicated across every system.</p>
+        <ul class="problem-items">
+          <li><span class="icon icon-x">✕</span> Identity maps to roles — queries are unconstrained</li>
+          <li><span class="icon icon-x">✕</span> Audit trail covers actions, not intent</li>
+          <li><span class="icon icon-x">✕</span> No cross-call memory — aggregation attacks invisible</li>
+          <li><span class="icon icon-x">✕</span> Policy logic scattered across every data source</li>
+          <li><span class="icon icon-x">✕</span> Managed Identity tokens have no user context</li>
+        </ul>
+      </div>
+      <div class="problem-col problem-col--good">
+        <div class="problem-label">✓ &nbsp;Pre-Authorization Model</div>
+        <h3>Proactive — query must prove compliance</h3>
+        <p style="font-size:0.87rem;color:var(--text-2);">No query reaches a data source without a signed attestation it has already been found compliant. The query <em>is</em> the proof.</p>
+        <ul class="problem-items">
+          <li><span class="icon icon-check">✓</span> Catalog is the sole source of governance truth</li>
+          <li><span class="icon icon-check">✓</span> Agents blocked before invocation, not filtered after</li>
+          <li><span class="icon icon-check">✓</span> Signed, query-bound proof — non-delegable, single-use</li>
+          <li><span class="icon icon-check">✓</span> MCP server enforces proofs — never decides policy</li>
+          <li><span class="icon icon-check">✓</span> Entra OID embedded — identity survives OBO delegation</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<hr class="divider">
+
+<!-- ── Architecture ── -->
+<section class="section" id="architecture">
+  <div class="container">
+    <span class="overline reveal">Architecture</span>
+    <h2 class="reveal">Four Governance Layers</h2>
+    <p class="lead reveal">Every request flows through four enforced layers before a single byte of data moves. Each layer has a single responsibility and cannot be bypassed.</p>
+
+    <div class="arch-flow">
+
+      <!-- L0 Entra -->
+      <div class="arch-layer arch-layer--l0 reveal glow-border">
+        <div class="arch-layer-header">
+          <span class="arch-layer-badge badge-l0">Step 0 · Auth</span>
+        </div>
+        <div class="arch-layer-title">Entra ID Authentication</div>
+        <div class="arch-layer-desc">Bearer token validated against JWKS. OID → user_id. Group memberships → data scope. App roles → clearance level. OBO degradation applied explicitly.</div>
+        <div class="arch-tags">
+          <span class="arch-tag">RS256 JWT validation</span>
+          <span class="arch-tag">group → scope mapping</span>
+          <span class="arch-tag">OBO constraint modelling</span>
+          <span class="arch-tag">Managed Identity rejection</span>
+        </div>
+      </div>
+
+      <div class="arch-connector-vert reveal">
+        <div class="arch-connector-vert-line"></div>
+        <div class="arch-connector-vert-dot"></div>
+        <div class="arch-connector-vert-line"></div>
+      </div>
+
+      <!-- L1 Catalog -->
+      <div class="arch-layer arch-layer--l1 reveal glow-border">
+        <div class="arch-layer-header">
+          <span class="arch-layer-badge badge-l1">L1 · Policy Source</span>
+        </div>
+        <div class="arch-layer-title">Data Catalog — Single Source of Governance Truth</div>
+        <div class="arch-layer-desc">All governance rules originate here. No downstream component holds its own copy of policy logic. Any change propagates outward automatically.</div>
+        <div class="arch-tags">
+          <span class="arch-tag">sensitivity classifications</span>
+          <span class="arch-tag">access rights</span>
+          <span class="arch-tag">data scope tags</span>
+          <span class="arch-tag">PII column lists</span>
+          <span class="arch-tag">consent state</span>
+          <span class="arch-tag">policy versioning</span>
+        </div>
+      </div>
+
+      <div class="arch-connector-vert reveal">
+        <div class="arch-connector-vert-line"></div>
+        <div class="arch-connector-vert-dot"></div>
+        <div class="arch-connector-vert-line"></div>
+      </div>
+
+      <!-- L2 Orchestrator -->
+      <div class="arch-layer arch-layer--l2 reveal glow-border">
+        <div class="arch-layer-header">
+          <span class="arch-layer-badge badge-l2">L2 · Eligibility</span>
+        </div>
+        <div class="arch-layer-title">Orchestrator — Agent Gating Before Invocation</div>
+        <div class="arch-layer-desc">Before any agent runs, the orchestrator resolves which agents are eligible given catalog policies and user context. Non-eligible agents are <strong style="color:var(--red)">never activated</strong> — this is exclusion before invocation, not filtering after.</div>
+        <div class="arch-tags">
+          <span class="arch-tag">clearance ceiling check</span>
+          <span class="arch-tag">access right validation</span>
+          <span class="arch-tag">source allowlist</span>
+          <span class="arch-tag">data scope intersection</span>
+        </div>
+      </div>
+
+      <div class="arch-connector-vert reveal">
+        <div class="arch-connector-vert-line"></div>
+        <div class="arch-connector-vert-dot"></div>
+        <div class="arch-connector-vert-line"></div>
+      </div>
+
+      <!-- L3 Policy Resolver -->
+      <div class="arch-layer arch-layer--l3 reveal glow-border">
+        <div class="arch-layer-header">
+          <span class="arch-layer-badge badge-l3">L3 · Pre-Authorization</span>
+        </div>
+        <div class="arch-layer-title">Policy Resolver — Authorized Query Proof</div>
+        <div class="arch-layer-desc">An agent expresses intent. The resolver validates the specific query against catalog policy and issues a cryptographically signed proof. The query hash is embedded — the query cannot be substituted downstream. No agent can self-issue.</div>
+        <div class="arch-tags">
+          <span class="arch-tag">SHA-256 query binding</span>
+          <span class="arch-tag">RS256 signing</span>
+          <span class="arch-tag">120s TTL</span>
+          <span class="arch-tag">non-delegable</span>
+          <span class="arch-tag">single-use</span>
+          <span class="arch-tag">row filter derivation</span>
+        </div>
+      </div>
+
+      <div class="arch-connector-vert reveal">
+        <div class="arch-connector-vert-line"></div>
+        <div class="arch-connector-vert-dot"></div>
+        <div class="arch-connector-vert-line"></div>
+      </div>
+
+      <!-- L4 MCP -->
+      <div class="arch-layer arch-layer--l4 reveal glow-border">
+        <div class="arch-layer-header">
+          <span class="arch-layer-badge badge-l4">L4 · Enforcement</span>
+        </div>
+        <div class="arch-layer-title">MCP Governance Server — Enforcement Point Only</div>
+        <div class="arch-layer-desc">The MCP server verifies the proof's signature and expiry, then routes to filter push-down (SQL WHERE injection) or pass-through. It <strong style="color:var(--green)">never makes a policy decision</strong> — that was already made and signed in L3.</div>
+        <div class="arch-tags">
+          <span class="arch-tag">signature verification</span>
+          <span class="arch-tag">replay protection</span>
+          <span class="arch-tag">filter push-down</span>
+          <span class="arch-tag">column masking</span>
+        </div>
+      </div>
+
+      <!-- Cross-cutting -->
+      <div style="margin-top:20px;" class="reveal">
+        <div class="arch-layer arch-layer--cross">
+          <div class="arch-layer-header">
+            <span class="arch-layer-badge badge-cross">Cross-Cutting Controls</span>
+          </div>
+          <div class="arch-cross-grid">
+            <div class="arch-cross-item">
+              <div class="arch-cross-title">Context Governance</div>
+              <div class="arch-cross-desc">Classifies inter-agent context. Redacts content above the receiving agent's clearance ceiling before it passes.</div>
+            </div>
+            <div class="arch-cross-item">
+              <div class="arch-cross-title">Governed Cache</div>
+              <div class="arch-cross-desc">Identity-scoped Redis keys, policy-version TTLs, Fernet encryption at rest. Sensitive data never cached in plaintext.</div>
+            </div>
+            <div class="arch-cross-item">
+              <div class="arch-cross-title">Session Isolation</div>
+              <div class="arch-cross-desc">Agents declare exactly which fields they need. SessionStateStore mediates access — no raw context forwarding.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<hr class="divider">
+
+<!-- ── Authorized Query Proof ── -->
+<section class="section" id="proof" style="background:var(--bg-2);">
+  <div class="container">
+    <span class="overline reveal">The Core Artifact</span>
+    <h2 class="reveal">The Authorized Query Proof</h2>
+    <p class="lead reveal">
+      A cryptographically signed JWT that binds a specific query to a specific user, agent,
+      session, and catalog policy version — at the time of authorization. Five properties
+      make it tamper-evident and non-reusable.
+    </p>
+
+    <div class="proof-grid reveal">
+      <div class="proof-card">
+        <div class="proof-card-header">
+          <div class="proof-card-dot" style="background:var(--amber);"></div>
+          <h3>Proof Properties</h3>
+        </div>
+        <div class="proof-card-body">
+          <ul class="proof-props">
+            <li>
+              <span class="prop-key">query-bound</span>
+              <span class="prop-val">SHA-256 hash of the exact query embedded. The query cannot be substituted at the MCP layer.</span>
+            </li>
+            <li>
+              <span class="prop-key">non-delegable</span>
+              <span class="prop-val">agent_id embedded. A different agent presenting the same proof is rejected immediately.</span>
+            </li>
+            <li>
+              <span class="prop-key">single-use</span>
+              <span class="prop-val">proof_id tracked in the MCP server. Replay attacks are blocked by design.</span>
+            </li>
+            <li>
+              <span class="prop-key">short-lived</span>
+              <span class="prop-val">Default 120-second TTL. No refresh mechanism. Expired proofs are cryptographically unextendable.</span>
+            </li>
+            <li>
+              <span class="prop-key">policy-versioned</span>
+              <span class="prop-val">Catalog policy version embedded. Proofs issued under superseded policies are detectable.</span>
+            </li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="proof-card">
+        <div class="proof-card-header">
+          <div class="proof-card-dot" style="background:var(--teal);"></div>
+          <h3>JWT Payload Schema</h3>
+        </div>
+        <div class="proof-card-body">
+<pre><code>{
+  "jti":            "proof-uuid",
+  "sub":            "entra-oid-immutable",
+  "agent_id":       "retrieval_agent",
+  "session_id":     "session-uuid",
+  "query_hash":     "sha256:a3f8...",
+  "policy_version": "v:c4e2a1b9...",
+  "allowed_filters": {
+    "scope_filter": "scope IN ('x')"
+  },
+  "iat": 1716000000,
+  "exp": 1716000120,
+  "iss": "policy-resolver"
+}</code></pre>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<hr class="divider">
+
+<!-- ── Failure Modes ── -->
+<section class="section" id="failures">
+  <div class="container">
+    <span class="overline reveal">Failure Modes Addressed</span>
+    <h2 class="reveal">10 Ways Governance Breaks<br>with LLM Agents</h2>
+    <p class="lead reveal">Each of these failure modes has a concrete implementation in the framework. Click through to the GitHub repo for the module implementing each fix.</p>
+
+    <div class="failures-grid">
+      <div class="failure-card reveal">
+        <div class="failure-num">01</div>
+        <div class="failure-title">Tokens prove identity, not query compliance</div>
+        <div class="failure-desc">A valid Bearer token says who is calling. It says nothing about whether the specific SQL or API call being made is permitted against the data it touches.</div>
+        <div class="failure-module">→ policy_resolver/</div>
+      </div>
+      <div class="failure-card reveal">
+        <div class="failure-num">02</div>
+        <div class="failure-title">RBAC cannot govern non-deterministic queries</div>
+        <div class="failure-desc">LLM agents generate queries dynamically at runtime. The same user prompt can produce vastly different query surfaces. RBAC cannot govern what it cannot predict.</div>
+        <div class="failure-module">→ orchestrator/eligibility.py</div>
+      </div>
+      <div class="failure-card reveal">
+        <div class="failure-num">03</div>
+        <div class="failure-title">Cross-call aggregation attacks</div>
+        <div class="failure-desc">An agent can chain individually permitted calls across multiple data sources and correlate results in its context window into inferences no single source would have disclosed.</div>
+        <div class="failure-module">→ orchestrator/eligibility.py</div>
+      </div>
+      <div class="failure-card reveal">
+        <div class="failure-num">04</div>
+        <div class="failure-title">Prompt injection hijacks tool calls</div>
+        <div class="failure-desc">Malicious instructions embedded in retrieved data redirect agent behaviour. The agent makes tool calls under its own permitted identity — RBAC is completely blind.</div>
+        <div class="failure-module">→ injection_detection/</div>
+      </div>
+      <div class="failure-card reveal">
+        <div class="failure-num">05</div>
+        <div class="failure-title">Context leaks across agent chains</div>
+        <div class="failure-desc">Data retrieved under governed conditions immediately exits the governance perimeter when it enters an agent's context window. No policy follows the data forward.</div>
+        <div class="failure-module">→ context_governance/</div>
+      </div>
+      <div class="failure-card reveal">
+        <div class="failure-num">06</div>
+        <div class="failure-title">Redis cache carries no classification</div>
+        <div class="failure-desc">Cached tool results carry zero sensitivity metadata. Cache keys rarely incorporate identity, enabling cross-user and cross-agent data leakage through cache hits.</div>
+        <div class="failure-module">→ cache/governed_cache.py</div>
+      </div>
+      <div class="failure-card reveal">
+        <div class="failure-num">07</div>
+        <div class="failure-title">Context window as shared memory</div>
+        <div class="failure-desc">Without session isolation, Agent A's full context automatically becomes Agent B's context. Agents accumulate sensitive data outside any governed store.</div>
+        <div class="failure-module">→ agents/session_isolation.py</div>
+      </div>
+      <div class="failure-card reveal">
+        <div class="failure-num">08</div>
+        <div class="failure-title">MCP server as policy decision point</div>
+        <div class="failure-desc">When the MCP server makes policy decisions, policy logic must be replicated everywhere. It drifts, becomes inconsistent, and cannot scale across heterogeneous sources.</div>
+        <div class="failure-module">→ mcp_server/</div>
+      </div>
+      <div class="failure-card reveal">
+        <div class="failure-num">09</div>
+        <div class="failure-title">Entra ID proves who, not what</div>
+        <div class="failure-desc">A valid Entra Bearer token proves authentication. It does not prove that the specific query being executed is policy-compliant for the data it touches.</div>
+        <div class="failure-module">→ auth/</div>
+      </div>
+      <div class="failure-card reveal">
+        <div class="failure-num">10</div>
+        <div class="failure-title">OBO delegation silently drops policy context</div>
+        <div class="failure-desc">On-Behalf-Of propagates the user's OID — but loses app role assignments, data scope, and clearance level. Downstream agents operate with an invisible degraded context.</div>
+        <div class="failure-module">→ auth/claim_mapper.py</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<hr class="divider">
+
+<!-- ── Entra ID ── -->
+<section class="section" id="entra" style="background:var(--bg-2);">
+  <div class="container">
+    <span class="overline reveal">Identity Integration</span>
+    <h2 class="reveal">Entra ID — Where Identity<br>Ends and Authorization Begins</h2>
+    <p class="lead reveal">
+      Entra ID is the identity anchor. The Authorized Query Proof is the authorization artifact.
+      These solve different problems — the <code>auth/</code> module bridges them.
+    </p>
+
+    <div class="entra-grid reveal">
+      <div class="entra-col entra-col--provides">
+        <div class="entra-col-header">✓ &nbsp;What Entra ID provides</div>
+        <ul class="entra-items">
+          <li class="entra-item">
+            <div class="entra-item-title">Principal authentication</div>
+            <div class="entra-item-desc">Users, Managed Identities, and Service Principals authenticated via OAuth 2.0/OIDC. The OID is the immutable, canonical identity anchor.</div>
+          </li>
+          <li class="entra-item">
+            <div class="entra-item-title">Conditional Access pre-filtering</div>
+            <div class="entra-item-desc">Location, device compliance, and MFA enforcement can gate whether a session token is issued — a coarse L2-style pre-filter before agents are invoked.</div>
+          </li>
+          <li class="entra-item">
+            <div class="entra-item-title">Token propagation to MCP</div>
+            <div class="entra-item-desc">An Entra Bearer token can be forwarded to MCP servers, establishing that a principal with a known OID made the call.</div>
+          </li>
+        </ul>
+      </div>
+      <div class="entra-col entra-col--cannot">
+        <div class="entra-col-header">✕ &nbsp;What Entra ID cannot prove</div>
+        <ul class="entra-items">
+          <li class="entra-item">
+            <div class="entra-item-title">Query-level compliance</div>
+            <div class="entra-item-desc">A valid Bearer token proves authentication — not that the specific query is policy-compliant for the data asset it touches.</div>
+          </li>
+          <li class="entra-item">
+            <div class="entra-item-title">Agent vs. user identity</div>
+            <div class="entra-item-desc">When an LLM agent calls an MCP server using Managed Identity, the token belongs to the agent's service principal. The invoking user is invisible to the data source.</div>
+          </li>
+          <li class="entra-item">
+            <div class="entra-item-title">OBO delegation chain integrity</div>
+            <div class="entra-item-desc">On-Behalf-Of propagates OID and UPN — but not app role assignments. Data scope and clearance level are silently lost in delegation chains.</div>
+          </li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="entra-callout reveal">
+      <strong>The fix:</strong> embed the Entra OID inside the Authorized Query Proof — binding identity, session context, data scope, clearance, and query hash into a single signed, tamper-evident artifact that the MCP server enforces. Even when downstream components never see the original Bearer token, the identity is preserved and verifiable.
+    </div>
+  </div>
+</section>
+
+<hr class="divider">
+
+<!-- ── Modules ── -->
+<section class="section" id="modules">
+  <div class="container">
+    <span class="overline reveal">Implementation</span>
+    <h2 class="reveal">Module Breakdown</h2>
+    <p class="lead reveal">
+      Each module has a single, well-defined responsibility.
+      See the <a href="https://github.com/sanjdow/agentic_governance" target="_blank" rel="noopener">GitHub repo</a> for full implementation details, 80 tests, and runnable examples.
+    </p>
+
+    <div class="modules-grid">
+      <div class="module-card reveal">
+        <div class="module-dir">auth/</div>
+        <div class="module-name">Entra ID Authentication</div>
+        <div class="module-desc">Token validation, claim mapping, OBO constraint modelling. Groups → data scope. Roles → clearance. Test factory for credential-free testing.</div>
+      </div>
+      <div class="module-card reveal">
+        <div class="module-dir">catalog/</div>
+        <div class="module-name">Data Catalog</div>
+        <div class="module-desc">L1 policy source of truth. Runtime-queryable APIs for classifications, access rights, consent state, row filters, and policy versioning.</div>
+      </div>
+      <div class="module-card reveal">
+        <div class="module-dir">policy_resolver/</div>
+        <div class="module-name">Policy Resolver</div>
+        <div class="module-desc">Issues RS256-signed Authorized Query Proofs. Short-lived, non-delegable, query-bound. Handles revocation and session-level invalidation.</div>
+      </div>
+      <div class="module-card reveal">
+        <div class="module-dir">orchestrator/</div>
+        <div class="module-name">Agent Eligibility</div>
+        <div class="module-desc">Resolves eligible agents against catalog policy before invocation. Blocks agents exceeding user clearance. Prevents identity elevation attacks.</div>
+      </div>
+      <div class="module-card reveal">
+        <div class="module-dir">mcp_server/</div>
+        <div class="module-name">MCP Governance Server</div>
+        <div class="module-desc">Pure Policy Enforcement Point. Verifies proof signature, expiry, and replay. Routes to filter push-down or pass-through. Never decides policy.</div>
+      </div>
+      <div class="module-card reveal">
+        <div class="module-dir">context_governance/</div>
+        <div class="module-name">Context Governance</div>
+        <div class="module-desc">Heuristic PII and sensitivity classifier. Intercepts inter-agent context and redacts content above the receiving agent's clearance ceiling.</div>
+      </div>
+      <div class="module-card reveal">
+        <div class="module-dir">injection_detection/</div>
+        <div class="module-name">Injection Detector</div>
+        <div class="module-desc">4-layer prompt injection detection before tool dispatch: critical patterns, boundary analysis, tool-redirect, delimiter injection scanning.</div>
+      </div>
+      <div class="module-card reveal">
+        <div class="module-dir">cache/</div>
+        <div class="module-name">Governed Cache</div>
+        <div class="module-desc">Identity-scoped Redis wrapper. Policy-version-bound TTLs. Fernet encryption at rest. Prevents cross-identity and stale-policy cache hits.</div>
+      </div>
+      <div class="module-card reveal">
+        <div class="module-dir">agents/</div>
+        <div class="module-name">Session Isolation</div>
+        <div class="module-desc">SessionStateStore with need-to-know ContextRequest. Agents declare exactly which fields they need — no raw context forwarding between hops.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<hr class="divider">
+
+<!-- ── Get Started ── -->
+<section class="section--tight section" id="start">
+  <div class="container">
+    <span class="overline reveal">Get Started</span>
+    <h2 class="reveal">Up and Running in Minutes</h2>
+    <p class="lead reveal">No Azure credentials or external services required for development and testing. The full governance chain runs in-process.</p>
+
+    <div class="gs-grid">
+      <div>
+        <ol class="gs-steps reveal">
+          <li class="gs-step">
+            <div class="gs-step-content">
+              <h4>Clone the repository</h4>
+              <p>All source code, tests, and examples are in the <a href="https://github.com/sanjdow/agentic_governance" target="_blank" rel="noopener">sanjdow/agentic_governance</a> repo.</p>
+            </div>
+          </li>
+          <li class="gs-step">
+            <div class="gs-step-content">
+              <h4>Create a virtual environment</h4>
+              <p>Python 3.10+ required. <code>python3 -m venv .venv && source .venv/bin/activate</code></p>
+            </div>
+          </li>
+          <li class="gs-step">
+            <div class="gs-step-content">
+              <h4>Install dependencies</h4>
+              <p><code>pip install -r requirements.txt</code> or <code>pip install -e ".[test]"</code> for an editable install.</p>
+            </div>
+          </li>
+          <li class="gs-step">
+            <div class="gs-step-content">
+              <h4>Run the test suite</h4>
+              <p>All 80 tests should pass. <code>pytest tests/ -v</code></p>
+            </div>
+          </li>
+          <li class="gs-step">
+            <div class="gs-step-content">
+              <h4>Run the demos</h4>
+              <p><code>python examples/full_scenario.py</code> for the core governance chain, or <code>python examples/demo_entra_auth.py</code> for the Entra ID flow.</p>
+            </div>
+          </li>
+        </ol>
+      </div>
+
+      <div class="reveal">
+<pre><code># Clone
+git clone https://github.com/sanjdow/agentic_governance
+cd agentic_governance
+
+# Install
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+
+# Verify — 80 tests pass
+pytest tests/ -v
+
+# Core governance demo
+python examples/full_scenario.py
+
+# Entra ID auth demo (no Azure creds needed)
+python examples/demo_entra_auth.py</code></pre>
+
+        <div style="margin-top:16px;padding:16px 20px;background:var(--teal-dim);border:1px solid rgba(0,212,184,0.2);border-radius:8px;">
+          <div style="font-size:0.82rem;color:var(--teal);font-family:var(--font-mono);margin-bottom:4px;">NOTE</div>
+          <div style="font-size:0.85rem;color:var(--text-2);">Entra ID integration uses a test token factory in development mode — no Azure tenant, client ID, or credentials required to run all 80 tests.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<hr class="divider">
+
+<!-- ── CTA ── -->
+<section class="cta">
+  <div class="cta-glow"></div>
+  <div class="container">
+    <h2 class="reveal">Ready to govern your agent stack?</h2>
+    <p class="lead reveal">
+      Full source code, 80 tests, and two runnable end-to-end demos. 
+      MIT licensed. No proprietary dependencies.
+    </p>
+    <div class="cta-actions reveal">
+      <a href="https://github.com/sanjdow/agentic_governance" target="_blank" rel="noopener" class="btn btn--primary">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"/></svg>
+        View Repository
+      </a>
+      <a href="https://github.com/sanjdow/agentic_governance/blob/master/README.md" target="_blank" rel="noopener" class="btn btn--ghost">
+        Read the Docs
+      </a>
+    </div>
+  </div>
+</section>
+
+<!-- ── Footer ── -->
+<footer>
+  <div class="footer-inner">
+    <div class="footer-logo">agentic_governance · MIT License</div>
+    <div class="footer-links">
+      <a href="https://github.com/sanjdow/agentic_governance" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://github.com/sanjdow/agentic_governance/blob/master/README.md" target="_blank" rel="noopener">Docs</a>
+      <a href="https://github.com/sanjdow/agentic_governance/blob/master/CHANGES.md" target="_blank" rel="noopener">Changelog</a>
+      <a href="https://github.com/sanjdow/agentic_governance/issues" target="_blank" rel="noopener">Issues</a>
+    </div>
+  </div>
+</footer>
+
+<script>
+// ── Scroll reveal ──
+const observer = new IntersectionObserver((entries) => {
+  entries.forEach(entry => {
+    if (entry.isIntersecting) {
+      entry.target.classList.add('visible');
+    }
+  });
+}, { threshold: 0.08, rootMargin: '0px 0px -40px 0px' });
+
+document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
+
+// ── Stagger sibling reveals ──
+document.querySelectorAll('.failures-grid, .modules-grid').forEach(grid => {
+  const cards = grid.querySelectorAll('.reveal');
+  cards.forEach((card, i) => {
+    card.style.transitionDelay = `${i * 0.06}s`;
+  });
+});
+</script>
+</body>
+</html>
