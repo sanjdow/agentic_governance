@@ -11,27 +11,27 @@ class AgenticGovernanceError(Exception):
 
 # ── Authorization ─────────────────────────────────────────────────────────────
 
-class ProofVerificationError(AgenticGovernanceError):
-    """Raised when an Authorized Query Proof fails verification."""
+class TokenVerificationError(AgenticGovernanceError):
+    """Raised when an Signed Access Token fails verification."""
 
 
-class ProofExpiredError(ProofVerificationError):
-    """Raised when an Authorized Query Proof has expired."""
+class TokenExpiredError(TokenVerificationError):
+    """Raised when an Signed Access Token has expired."""
 
 
-class ProofQueryMismatchError(ProofVerificationError):
+class TokenQueryMismatchError(TokenVerificationError):
     """Raised when the submitted query does not match the proof's query hash."""
 
 
-class ProofDelegationError(ProofVerificationError):
+class TokenDelegationError(TokenVerificationError):
     """Raised when a proof is used by an agent other than the one it was issued for."""
 
 
-class ProofRevocationError(ProofVerificationError):
+class TokenRevocationError(TokenVerificationError):
     """Raised when a proof has been explicitly revoked (e.g. mid-session policy change)."""
 
 
-class UnauthorizedQueryError(AgenticGovernanceError):
+class QueryAccessDeniedError(AgenticGovernanceError):
     """Raised when the Policy Resolver denies a query."""
 
 

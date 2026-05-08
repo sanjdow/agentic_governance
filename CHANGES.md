@@ -84,11 +84,11 @@ policy version, which evicts cached entries and invalidates outstanding proofs.
 ### 6. MCP server replay protection set was unbounded
 **Location:** `mcp_server/governance_server.py`
 
-`_used_proof_ids` was a `set` that only ever grew. In a long-running deployment
+`_used_token_ids` was a `set` that only ever grew. In a long-running deployment
 this is a memory leak, and there was no eviction logic at all.
 
 **Fix:**
-- Changed to `dict[str, datetime]` mapping `proof_id → expires_at`.
+- Changed to `dict[str, datetime]` mapping `token_id → expires_at`.
 - Added `_record_proof_use()` method that:
   - Evicts entries whose proof expiry has passed (those proofs can't be
     re-verified anyway, so tracking them adds no security)
@@ -96,16 +96,16 @@ this is a memory leak, and there was no eviction logic at all.
     entries FIFO when full
 - Production note added: distributed deployments should use Redis with TTLs.
 
-### 7. `revoke_all_for_session` was broken
+### 7. `revoke_session_tokens` was broken
 **Location:** `policy_resolver/resolver.py`
 
 Original implementation added `f"session:{session_id}"` as a sentinel string
-to `_revoked_proofs`, but `verify_proof` only checked `proof_id in self._revoked_proofs`
+to `_revoked_proofs`, but `verify_token` only checked `token_id in self._revoked_proofs`
 — it never looked for the sentinel. Session-level revocation silently failed.
 
 **Fix:**
 - Added separate `_revoked_sessions: set[str]` tracking session-level revocation.
-- `verify_proof` now extracts `session_id` from the JWT payload and checks both
+- `verify_token` now extracts `session_id` from the JWT payload and checks both
   `_revoked_proofs` (per-proof) and `_revoked_sessions` (session-wide).
 - Added `_proof_session_index` mapping for diagnostics.
 - New test `test_session_revocation` confirms the fix.
@@ -113,12 +113,12 @@ to `_revoked_proofs`, but `verify_proof` only checked `proof_id in self._revoked
 ### 8. MCP server mutated the proof's `allowed_filters` dict during execution
 **Location:** `mcp_server/governance_server.py::_execute_governed`
 
-`filters = verified_proof.allowed_filters` then `filters.pop("masked_columns", [])`
-mutated the dict in-place on the verified_proof object. Any subsequent inspection
+`filters = verified_sat.allowed_filters` then `filters.pop("masked_columns", [])`
+mutated the dict in-place on the verified_sat object. Any subsequent inspection
 of the proof (logging, audit trail) would show altered filters that don't match
 what was actually issued.
 
-**Fix:** Use `copy.deepcopy(verified_proof.allowed_filters)` before pop.
+**Fix:** Use `copy.deepcopy(verified_sat.allowed_filters)` before pop.
 Added test `test_proof_filters_not_mutated_by_execution` that snapshots the
 proof's filters, executes the call, and asserts the proof is unchanged.
 
@@ -168,7 +168,7 @@ and may make spurious decisions thinking the upstream agent produced nothing.
 has a clear signal that content existed but was withheld.
 
 ### 12. Query hash was not whitespace-canonical
-**Location:** `core/models.py::AuthorizedQueryProof.hash_query`
+**Location:** `core/models.py::SignedAccessToken.hash_query`
 
 Two semantically identical queries with different formatting (extra spaces,
 line breaks) produced different hashes, causing legitimate queries to fail

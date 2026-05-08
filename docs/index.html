@@ -3,10 +3,10 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Agentic Governance: A Pre-Authorization Model for Policy-Compliant AI Agent Calls</title>
-<meta name="description" content="Why RBAC and identity tokens break down when LLM agents enter the data stack — and a pre-authorization model that fixes it.">
-<meta property="og:title" content="Agentic Governance: A Pre-Authorization Model for Policy-Compliant AI Agent Calls">
-<meta property="og:description" content="Why RBAC and identity tokens break down when LLM agents enter the data stack — and a pre-authorization model that fixes it.">
+<title>Data Access Governance for LLM Agents</title>
+<meta name="description" content="Why RBAC and identity tokens break down when LLM agents enter the data stack — and a data access governance model that fixes it.">
+<meta property="og:title" content="Data Access Governance for LLM Agents">
+<meta property="og:description" content="Why RBAC and identity tokens break down when LLM agents enter the data stack — and a data access governance model that fixes it.">
 <meta property="og:type" content="article">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -693,8 +693,8 @@ footer {
       <line x1="1000" y1="236" x2="910" y2="400" stroke="rgba(255,255,255,0.08)" stroke-width="1" stroke-dasharray="3 3"/>
     </svg>
     <div class="hero-img-text">
-      <h2>Agentic Governance</h2>
-      <p>A pre-authorization model for policy-compliant AI agent calls</p>
+      <h2>Agent Access Control</h2>
+      <p>Query-bound access control for LLM agent calls</p>
     </div>
   </div>
 </div>
@@ -712,7 +712,7 @@ footer {
         <span class="article-tag">Entra ID</span>
         <span class="article-tag">MCP</span>
       </div>
-      <h1 class="article-title">Agentic Governance: A Pre-Authorization Model for Policy-Compliant AI Agent Calls</h1>
+      <h1 class="article-title">Data Access Governance for LLM Agents</h1>
       <div class="article-meta">
         <div class="article-author">
           <div class="author-avatar">SD</div>
@@ -732,16 +732,16 @@ footer {
       </p>
 
       <p>
-        This repository is a Python reference implementation of a distinct architectural model in which governance policy originates exclusively in the data catalog, is enforced at the orchestration layer through policy-driven agent selection, and is carried into every data source call as a cryptographically signed, query-bound proof of prior authorization. The MCP server becomes a pure enforcement point, never a decision point.
+        This repository is a Python reference implementation of a distinct architectural model in which governance policy originates exclusively in the data catalog, is enforced at the orchestration layer through policy-driven agent selection, and is carried into every data source call as a cryptographically signed, operation-scoped proof of prior authorization. The MCP server becomes a pure access enforcer, never a decision point.
       </p>
 
       <div class="callout">
-        <span class="callout-label">Core of the matter</span>
-        <p>The fundamental error in today's agentic governance architectures is that they grant access to a <strong>source</strong>, not to a <strong>query</strong>. A token proves identity; it does not prove that the specific query being executed is policy-compliant. True agentic governance requires that every tool call carries a pre-validated, signed proof that the query itself — not merely the agent — has been authorized.</p>
+        <span class="callout-label">Core thesis</span>
+        <p>The fundamental error in today's agent access control architectures is that they grant access to a <strong>source</strong>, not to a <strong>query</strong>. A token proves identity; it does not prove that the specific query being executed is policy-compliant. True agent access control requires that every tool call carries a pre-validated, signed proof that the query itself — not merely the agent — has been authorized.</p>
       </div>
 
       <p>
-        The model inverts the prevailing trust assumption. In token-based systems, the burden of proof is <em>reactive</em>: a token grants entry and any subsequent query is presumed acceptable unless the receiving system detects a violation. Here, it is <em>proactive</em>: no query reaches a data source unless it arrives with a signed attestation that it has already been found compliant.
+        The model inverts the prevailing trust assumption. In token-based systems, the trust model is <em>reactive</em>: a token grants entry and any subsequent query is presumed acceptable unless the receiving system detects a violation. Here, it is <em>proactive</em>: no query reaches a data source unless it arrives with a signed attestation that it has already been found compliant.
       </p>
 
       <!-- Architecture -->
@@ -763,7 +763,7 @@ footer {
         <div class="layer-card">
           <div class="layer-badge badge-l1">L1<br>Catalog</div>
           <div>
-            <div class="layer-title">Data Catalog — sole source of governance truth</div>
+            <div class="layer-title">Data Catalog — authoritative source of access policy</div>
             <p class="layer-desc">Governance rules must not be defined in gateways, orchestrators, or MCP servers. They must be derived from the data catalog — the system of record for classifications, sensitivity levels, access rights, and regulatory constraints. Any policy change propagates outward. No downstream component holds an independent copy.</p>
             <div class="layer-pills">
               <span class="pill">sensitivity classifications</span><span class="pill">access rights</span><span class="pill">PII columns</span><span class="pill">consent state</span><span class="pill">policy versioning</span>
@@ -784,7 +784,7 @@ footer {
           <div class="layer-badge badge-l3">L3<br>Proof</div>
           <div>
             <div class="layer-title">Policy Resolver — authorization must precede the query</div>
-            <p class="layer-desc">An agent expresses intent. The Policy Resolver validates it against catalog-derived access rights and issues an <strong>Authorized Query Proof</strong>: a cryptographically signed, short-lived document binding the specific query to the user identity, agent identity, session, and policy version at the time of issuance. The query cannot be substituted. The proof cannot be reused.</p>
+            <p class="layer-desc">An agent expresses intent. The Policy Resolver validates it against catalog-derived access rights and issues an <strong>Signed Access Token</strong>: a cryptographically signed, short-lived document binding the specific query to the user identity, agent identity, session, and policy version at the time of issuance. The query hash is binding — any modification is detected. Each token is single-use.</p>
             <div class="layer-pills">
               <span class="pill">SHA-256 query binding</span><span class="pill">RS256 JWT signing</span><span class="pill">120s TTL</span><span class="pill">non-delegable</span><span class="pill">single-use</span>
             </div>
@@ -793,7 +793,7 @@ footer {
         <div class="layer-card">
           <div class="layer-badge badge-l4">L4<br>MCP</div>
           <div>
-            <div class="layer-title">MCP server — enforcement point, never decision point</div>
+            <div class="layer-title">MCP server — access enforcer, never decision point</div>
             <p class="layer-desc">The MCP server does not evaluate whether a query is permissible. That decision has already been made and encoded in the proof. The server verifies the proof's signature, checks expiry, applies replay protection, and either pushes catalog-derived filters down to the data source or executes the pre-validated query unchanged.</p>
             <div class="layer-pills">
               <span class="pill">signature verification</span><span class="pill">replay protection</span><span class="pill">filter push-down</span><span class="pill">column masking</span>
@@ -821,16 +821,16 @@ footer {
           <tr><td>05</td><td>Context leaks across agent chains. Data retrieved under governed conditions exits the governance perimeter the moment it enters a context window. No policy follows it forward.</td><td>context_governance/</td></tr>
           <tr><td>06</td><td>Redis cache carries no classification metadata. Keys rarely incorporate identity, enabling cross-user and cross-agent data leakage via cache hits.</td><td>cache/governed_cache.py</td></tr>
           <tr><td>07</td><td>Context window as shared memory. Without session isolation, Agent A's full context becomes Agent B's context. Agents accumulate sensitive data outside any governed store.</td><td>agents/session_isolation.py</td></tr>
-          <tr><td>08</td><td>MCP server as policy decision point. When the MCP server makes policy decisions, logic is scattered everywhere. It drifts and cannot scale across heterogeneous sources.</td><td>mcp_server/</td></tr>
+          <tr><td>08</td><td>MCP server making access decisions inline. When access control logic lives inside the MCP server it is scattered across every data source, drifts inconsistently, and cannot scale.</td><td>mcp_server/</td></tr>
           <tr><td>09</td><td>Entra ID proves who is calling, not what they may query. A valid Bearer token proves authentication, not that the specific query is policy-compliant for the asset it touches.</td><td>auth/</td></tr>
           <tr><td>10</td><td>OBO delegation silently drops policy context. On-Behalf-Of propagates OID but loses app role assignments, data scope, and clearance level. Downstream agents operate with invisible degraded context.</td><td>auth/claim_mapper.py</td></tr>
         </tbody>
       </table>
 
       <!-- Proof -->
-      <h2 id="proof">The Authorized Query Proof</h2>
+      <h2 id="proof">The Signed Access Token</h2>
 
-      <p>The core artifact of the pre-authorization model. A cryptographically signed JWT binding a specific query to a specific user, agent, session, and catalog policy version. Five properties make it tamper-evident and non-reusable.</p>
+      <p>The core artifact of the data access governance model. A cryptographically signed JWT binding a specific query to a specific user, agent, session, and catalog policy version. Five properties make it tamper-evident and non-reusable.</p>
 
       <div class="proof-box">
         <div class="proof-box-header">
@@ -868,7 +868,7 @@ result = mcp.<span class="fn">handle_tool_call</span>(MCPToolCall(
       <!-- Entra ID -->
       <h2 id="entra-id">Entra ID integration</h2>
 
-      <p>Entra ID provides the identity anchor. The Authorized Query Proof provides the authorization artifact. These solve different problems. The <code>auth/</code> module bridges them by translating Entra claims into the framework's <code>UserContext</code>.</p>
+      <p>Entra ID provides the identity anchor. The Signed Access Token provides the authorization artifact. These solve different problems. The <code>auth/</code> module bridges them by translating Entra claims into the framework's <code>UserContext</code>.</p>
 
       <div class="compare-grid">
         <div class="compare-col">
@@ -905,7 +905,7 @@ result = mcp.<span class="fn">handle_tool_call</span>(MCPToolCall(
 
       <div class="callout">
         <span class="callout-label">The fix</span>
-        <p>Embed the Entra OID in the Authorized Query Proof as <code>sub</code>. Identity, data scope, clearance, and query hash travel together in a single signed artifact. Even when downstream agents never see the original Bearer token, the identity and policy context are preserved and verifiable. The <code>apply_obo_constraints()</code> method in <code>auth/claim_mapper.py</code> makes OBO degradation explicit — clearing <code>brand_scope</code> and reducing <code>clearance_level</code> to <code>INTERNAL</code> rather than silently inheriting stale context.</p>
+        <p>Embed the Entra OID in the Signed Access Token as <code>sub</code>. Identity, data scope, clearance, and query hash travel together in a single signed artifact. Even when downstream agents never see the original Bearer token, the identity and policy context are preserved and verifiable. The <code>apply_obo_constraints()</code> method in <code>auth/claim_mapper.py</code> makes OBO degradation explicit — clearing <code>brand_scope</code> and reducing <code>clearance_level</code> to <code>INTERNAL</code> rather than silently inheriting stale context.</p>
       </div>
 
       <!-- Modules -->
@@ -914,7 +914,7 @@ result = mcp.<span class="fn">handle_tool_call</span>(MCPToolCall(
       <div class="module-list">
         <div class="module-row"><span class="module-path">auth/</span><span class="module-desc">Entra ID authentication. Token validation against JWKS, claim mapping (groups → scope, roles → clearance), OBO constraint modelling, test token factory for credential-free testing.</span></div>
         <div class="module-row"><span class="module-path">catalog/</span><span class="module-desc">L1 data catalog. In-memory stub with runtime-queryable APIs for classifications, access rights, consent state, row filters, and policy versioning. Replace with a real catalog (Databricks Unity Catalog, Microsoft Purview) in production.</span></div>
-        <div class="module-row"><span class="module-path">policy_resolver/</span><span class="module-desc">L3 Policy Resolver. Issues RS256-signed Authorized Query Proofs. Handles per-proof and session-level revocation. Private key never leaves this module.</span></div>
+        <div class="module-row"><span class="module-path">policy_resolver/</span><span class="module-desc">L3 Policy Resolver. Issues RS256-signed Signed Access Tokens. Handles per-proof and session-level revocation. Private key never leaves this module.</span></div>
         <div class="module-row"><span class="module-path">orchestrator/</span><span class="module-desc">L2 agent eligibility. Resolves eligible agents against catalog policy before invocation. Blocks agents where the user's clearance is below the agent's max_sensitivity ceiling.</span></div>
         <div class="module-row"><span class="module-path">mcp_server/</span><span class="module-desc">L4 MCP Governance Server. Pure enforcement point. Verifies signature, expiry, and replay. Routes to filter push-down or pass-through. Never decides policy.</span></div>
         <div class="module-row"><span class="module-path">context_governance/</span><span class="module-desc">Inter-agent context middleware. Heuristic PII and sensitivity classifier with overlapping chunk windows to prevent boundary evasion. Redacts content above the receiving agent's clearance ceiling.</span></div>

@@ -14,7 +14,7 @@ Scenario:
   The framework demonstrates:
     ✓  L1: Catalog-driven policy resolution
     ✓  L2: Agent eligibility gating (group agent blocked for division-scoped user)
-    ✓  L3: Authorized Query Proof issuance and signing
+    ✓  L3: Signed Access Token issuance and signing
     ✓  L4: MCP governance server proof verification + filter push-down
     ✓  Context governance: sensitive data redacted between agents
     ✓  Injection detection: malicious field in query results caught
@@ -48,10 +48,10 @@ from agents.session_isolation import (
 from core.models import (
     UserContext, AgentContext, SessionContext,
     AccessRight, SensitivityLevel, MCPToolCall,
-    AuthorizedQueryProof,
+    SignedAccessToken,
 )
 from core.exceptions import (
-    AgentIneligibleError, UnauthorizedQueryError,
+    AgentIneligibleError, QueryAccessDeniedError,
     PromptInjectionBlockedError,
 )
 
@@ -74,7 +74,7 @@ def main() -> None:
     print(f"  ✓ Public key available for MCP server distribution")
 
     eligibility_resolver = AgentEligibilityResolver(catalog)
-    mcp_server = MCPGovernanceServer(resolver, require_proof=True)
+    mcp_server = MCPGovernanceServer(resolver, require_sat=True)
     context_middleware = ContextGovernanceMiddleware(catalog, mode="REDACT")
     injection_detector = PromptInjectionDetector()
     cache = GovernedCache(catalog, encrypt=True)
@@ -172,7 +172,7 @@ def main() -> None:
     print(f"\n  Requesting proof for query:")
     print(f"    {query[:80]}...")
 
-    proof = resolver.request_proof(
+    proof = resolver.request_token(
         session=session,
         agent=retrieval_agent,
         query=query,
@@ -181,7 +181,7 @@ def main() -> None:
     )
 
     print(f"\n  ✓ Proof issued:")
-    print(f"    proof_id:       {proof.proof_id[:16]}...")
+    print(f"    token_id:       {proof.token_id[:16]}...")
     print(f"    query_hash:     {proof.query_hash[:32]}...")
     print(f"    user_id:        {proof.user_id}")
     print(f"    agent_id:       {proof.agent_id}")
@@ -192,7 +192,7 @@ def main() -> None:
     # Demonstrate that a different agent CANNOT use the proof (non-delegable)
     print("\n  Testing proof delegation (should FAIL — non-delegable):")
     try:
-        resolver.verify_proof(
+        resolver.verify_token(
             token=proof.token,
             submitted_query=query,
             claiming_agent_id="group_restricted_agent",  # Wrong agent!
@@ -200,10 +200,10 @@ def main() -> None:
     except Exception as e:
         print(f"  ✗ DELEGATION BLOCKED: {e}")
 
-    # Demonstrate that a modified query CANNOT use the proof (query-bound)
-    print("\n  Testing query substitution (should FAIL — query-bound):")
+    # Demonstrate that a modified query CANNOT use the proof (operation-scoped)
+    print("\n  Testing query substitution (should FAIL — operation-scoped):")
     try:
-        resolver.verify_proof(
+        resolver.verify_token(
             token=proof.token,
             submitted_query="SELECT * FROM quality.division_defect_rates",  # Modified!
             claiming_agent_id=retrieval_agent.agent_id,

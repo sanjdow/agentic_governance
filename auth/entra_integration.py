@@ -6,16 +6,16 @@ High-level integration: Entra ID authentication → governance framework.
 This is the entry point for the auth module. It ties together:
   - EntraTokenValidator (validates the JWT)
   - EntraClaimMapper    (translates claims to UserContext)
-  - PolicyResolver      (issues Authorized Query Proofs with Entra OID embedded)
+  - PolicyResolver      (issues Signed Access Tokens with Entra OID embedded)
 
 The resulting SessionContext carries the Entra OID as the user_id throughout
 the governance chain — ensuring that even when downstream components only see
-the Authorized Query Proof (not the original Bearer token), the identity anchor
+the Signed Access Token (not the original Bearer token), the identity anchor
 is preserved and tamper-evident.
 
 Key architectural point:
   Entra ID tells us WHO the user is.
-  The Authorized Query Proof tells us WHAT they are permitted to query.
+  The Signed Access Token tells us WHAT they are permitted to query.
   These are different questions — this module bridges them.
 
 Usage (production):
@@ -179,7 +179,7 @@ class EntraAuthGateway:
         logger.warning(
             "OBO session established with degraded context: oid=%s — "
             "brand_scope=[] clearance=INTERNAL. "
-            "Use original session's Authorized Query Proof for full access.",
+            "Use original session's Signed Access Token for full access.",
             degraded_ctx.user_id,
         )
         return session

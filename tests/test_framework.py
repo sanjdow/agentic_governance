@@ -26,10 +26,10 @@ from core.models import (
     AccessRight, SensitivityLevel, MCPToolCall,
 )
 from core.exceptions import (
-    AgentIneligibleError, UnauthorizedQueryError,
-    PromptInjectionBlockedError, ProofRevocationError,
-    ProofDelegationError, ProofQueryMismatchError,
-    ProofExpiredError, ProofVerificationError,
+    AgentIneligibleError, QueryAccessDeniedError,
+    PromptInjectionBlockedError, TokenRevocationError,
+    TokenDelegationError, TokenQueryMismatchError,
+    TokenExpiredError, TokenVerificationError,
 )
 
 
@@ -110,7 +110,7 @@ def resolver(catalog):
 
 @pytest.fixture
 def mcp_server(resolver):
-    return MCPGovernanceServer(resolver, require_proof=True)
+    return MCPGovernanceServer(resolver, require_sat=True)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -258,7 +258,7 @@ class TestPolicyResolver:
     QUERY = "SELECT model, defect_code, rate FROM quality.division_defect_rates"
 
     def test_proof_issued_for_valid_request(self, resolver, primary_session, retrieval_agent):
-        proof = resolver.request_proof(
+        proof = resolver.request_token(
             session=primary_session,
             agent=retrieval_agent,
             query=self.QUERY,
@@ -279,8 +279,8 @@ class TestPolicyResolver:
             clearance_level=SensitivityLevel.CONFIDENTIAL,
         )
         session = SessionContext(user=no_access_user, request_intent="test")
-        with pytest.raises(UnauthorizedQueryError):
-            r.request_proof(
+        with pytest.raises(QueryAccessDeniedError):
+            r.request_token(
                 session=session,
                 agent=retrieval_agent,
                 query=self.QUERY,
@@ -288,13 +288,13 @@ class TestPolicyResolver:
             )
 
     def test_proof_verification_succeeds(self, resolver, primary_session, retrieval_agent):
-        proof = resolver.request_proof(
+        proof = resolver.request_token(
             session=primary_session,
             agent=retrieval_agent,
             query=self.QUERY,
             asset_ids=["division_quality_metrics"],
         )
-        verified = resolver.verify_proof(
+        verified = resolver.verify_token(
             token=proof.token,
             submitted_query=self.QUERY,
             claiming_agent_id=retrieval_agent.agent_id,
@@ -302,51 +302,51 @@ class TestPolicyResolver:
         assert verified.user_id == primary_session.user.user_id
 
     def test_proof_non_delegable(self, resolver, primary_session, retrieval_agent):
-        proof = resolver.request_proof(
+        proof = resolver.request_token(
             session=primary_session,
             agent=retrieval_agent,
             query=self.QUERY,
             asset_ids=["division_quality_metrics"],
         )
         # Specific exception type — useful for distinguishing failure modes downstream
-        with pytest.raises(ProofDelegationError):
-            resolver.verify_proof(
+        with pytest.raises(TokenDelegationError):
+            resolver.verify_token(
                 token=proof.token,
                 submitted_query=self.QUERY,
                 claiming_agent_id="other_agent",  # Wrong agent
             )
         # And callers that don't care about the specific reason can catch the base
-        with pytest.raises(ProofVerificationError):
-            resolver.verify_proof(
+        with pytest.raises(TokenVerificationError):
+            resolver.verify_token(
                 token=proof.token,
                 submitted_query=self.QUERY,
                 claiming_agent_id="other_agent",
             )
 
-    def test_proof_query_bound(self, resolver, primary_session, retrieval_agent):
-        proof = resolver.request_proof(
+    def test_token_is_operation_scoped(self, resolver, primary_session, retrieval_agent):
+        proof = resolver.request_token(
             session=primary_session,
             agent=retrieval_agent,
             query=self.QUERY,
             asset_ids=["division_quality_metrics"],
         )
-        with pytest.raises(ProofQueryMismatchError):
-            resolver.verify_proof(
+        with pytest.raises(TokenQueryMismatchError):
+            resolver.verify_token(
                 token=proof.token,
                 submitted_query="SELECT * FROM quality.division_defect_rates",  # Modified!
                 claiming_agent_id=retrieval_agent.agent_id,
             )
 
     def test_proof_revocation(self, resolver, primary_session, retrieval_agent):
-        proof = resolver.request_proof(
+        proof = resolver.request_token(
             session=primary_session,
             agent=retrieval_agent,
             query=self.QUERY,
             asset_ids=["division_quality_metrics"],
         )
-        resolver.revoke_proof(proof.proof_id)
-        with pytest.raises(ProofRevocationError):
-            resolver.verify_proof(
+        resolver.revoke_token(proof.token_id)
+        with pytest.raises(TokenRevocationError):
+            resolver.verify_token(
                 token=proof.token,
                 submitted_query=self.QUERY,
                 claiming_agent_id=retrieval_agent.agent_id,
@@ -354,15 +354,15 @@ class TestPolicyResolver:
 
     def test_session_revocation(self, resolver, primary_session, retrieval_agent):
         """Session-level revocation invalidates all proofs from that session."""
-        proof = resolver.request_proof(
+        proof = resolver.request_token(
             session=primary_session,
             agent=retrieval_agent,
             query=self.QUERY,
             asset_ids=["division_quality_metrics"],
         )
-        resolver.revoke_all_for_session(primary_session.session_id)
-        with pytest.raises(ProofRevocationError) as exc:
-            resolver.verify_proof(
+        resolver.revoke_session_tokens(primary_session.session_id)
+        with pytest.raises(TokenRevocationError) as exc:
+            resolver.verify_token(
                 token=proof.token,
                 submitted_query=self.QUERY,
                 claiming_agent_id=retrieval_agent.agent_id,
@@ -371,14 +371,14 @@ class TestPolicyResolver:
 
     def test_query_canonicalization_whitespace_insensitive(self, resolver, primary_session, retrieval_agent):
         """Whitespace differences in equivalent queries should produce the same hash."""
-        proof = resolver.request_proof(
+        proof = resolver.request_token(
             session=primary_session,
             agent=retrieval_agent,
             query="SELECT model, defect_code FROM quality.division_defect_rates",
             asset_ids=["division_quality_metrics"],
         )
         # Same query with extra whitespace should still verify
-        verified = resolver.verify_proof(
+        verified = resolver.verify_token(
             token=proof.token,
             submitted_query="SELECT  model,   defect_code  FROM  quality.division_defect_rates",
             claiming_agent_id=retrieval_agent.agent_id,
@@ -402,10 +402,10 @@ class TestMCPGovernanceServer:
         )
         result = mcp_server.handle_tool_call(call)
         assert result.success is False
-        assert "proof" in result.error.lower()
+        assert "token" in result.error.lower() or "sat" in result.error.lower()
 
     def test_governed_call_succeeds(self, mcp_server, resolver, primary_session, retrieval_agent):
-        proof = resolver.request_proof(
+        proof = resolver.request_token(
             session=primary_session,
             agent=retrieval_agent,
             query=self.QUERY,
@@ -422,7 +422,7 @@ class TestMCPGovernanceServer:
         assert result.governed is True
 
     def test_replay_attack_rejected(self, mcp_server, resolver, primary_session, retrieval_agent):
-        proof = resolver.request_proof(
+        proof = resolver.request_token(
             session=primary_session,
             agent=retrieval_agent,
             query=self.QUERY,
@@ -465,7 +465,7 @@ class TestMCPGovernanceServer:
     def test_proof_filters_not_mutated_by_execution(self, mcp_server, resolver, primary_session, retrieval_agent):
         """Execution path must not mutate the proof's allowed_filters dict."""
         query = "SELECT model FROM quality.division_defect_rates"
-        proof = resolver.request_proof(
+        proof = resolver.request_token(
             session=primary_session,
             agent=retrieval_agent,
             query=query,

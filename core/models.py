@@ -173,14 +173,14 @@ class PolicyVersion(BaseModel):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Authorized Query Proof
+# Signed Access Token
 # ─────────────────────────────────────────────────────────────────────────────
 
-class AuthorizedQueryProof(BaseModel):
+class SignedAccessToken(BaseModel):
     """
-    The core artifact of the pre-authorization model.
+    The core artifact of the data access governance model.
 
-    A cryptographically signed, short-lived, query-bound, non-delegable proof
+    A cryptographically signed, short-lived, operation-scoped, non-delegable proof
     that a specific query has been validated against catalog policies for a
     specific user/agent/session context.
 
@@ -191,7 +191,7 @@ class AuthorizedQueryProof(BaseModel):
     - Short-lived:    Expiry in seconds to minutes
     - Non-delegable:  Cannot be passed from one agent to another
     """
-    proof_id: str = Field(default_factory=lambda: str(uuid4()))
+    token_id: str = Field(default_factory=lambda: str(uuid4()))
     query_hash: str                          # SHA-256 of canonicalized authorised query
     query_preview: str                       # First 120 chars for logging (not for execution)
     user_id: str
@@ -307,7 +307,7 @@ class MCPToolCall(BaseModel):
     """
     tool: str
     arguments: dict[str, Any] = Field(default_factory=dict)
-    proof: Optional[AuthorizedQueryProof] = None   # None = naive / ungoverned call
+    proof: Optional[SignedAccessToken] = None   # None = naive / ungoverned call
 
     def is_governed(self) -> bool:
         return self.proof is not None and bool(self.proof.token)
@@ -319,5 +319,5 @@ class MCPToolResult(BaseModel):
     data: Any = None
     error: Optional[str] = None
     filters_applied: dict[str, Any] = Field(default_factory=dict)
-    proof_id: Optional[str] = None
+    token_id: Optional[str] = None
     governed: bool = False
