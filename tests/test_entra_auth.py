@@ -20,7 +20,7 @@ from auth.entra_integration import EntraAuthGateway
 from auth.token_validator import EntraTokenValidationError
 from catalog.catalog import build_demo_catalog
 from core.models import SensitivityLevel, AgentContext, AccessRight, MCPToolCall
-from core.exceptions import UnauthorizedQueryError, AgentIneligibleError
+from core.exceptions import QueryAccessDeniedError, AgentIneligibleError
 from orchestrator.eligibility import AgentEligibilityResolver
 from policy_resolver.resolver import PolicyResolver
 from mcp_server.governance_server import MCPGovernanceServer
@@ -52,7 +52,7 @@ def resolver(catalog):
 
 @pytest.fixture(scope="module")
 def mcp(resolver):
-    return MCPGovernanceServer(resolver, require_proof=True)
+    return MCPGovernanceServer(resolver, require_sat=True)
 
 
 @pytest.fixture(scope="module")
@@ -261,8 +261,8 @@ class TestOBODelegation:
         obo_session = gateway.authenticate_obo_request(
             f"Bearer {obo_token}", None, "OBO brand access attempt"
         )
-        with pytest.raises(UnauthorizedQueryError):
-            resolver.request_proof(
+        with pytest.raises(QueryAccessDeniedError):
+            resolver.request_token(
                 session=obo_session,
                 agent=retrieval_agent,
                 query="SELECT model FROM quality.division_defect_rates",
@@ -287,7 +287,7 @@ class TestEntraGovernanceChain:
         from core.models import AgentStatus
         assert decision.status == AgentStatus.ELIGIBLE
 
-        proof = resolver.request_proof(
+        proof = resolver.request_token(
             session=primary_session,
             agent=retrieval_agent,
             query=self.QUERY,
@@ -308,7 +308,7 @@ class TestEntraGovernanceChain:
 
     def test_proof_user_id_is_entra_oid(self, primary_session, retrieval_agent, resolver):
         """The OID embedded in the proof must equal the Entra OID — the user_id itself."""
-        proof = resolver.request_proof(
+        proof = resolver.request_token(
             session=primary_session,
             agent=retrieval_agent,
             query=self.QUERY,
@@ -322,7 +322,7 @@ class TestEntraGovernanceChain:
         self, group_session, retrieval_agent, resolver
     ):
         """Corp Group user should get brand filters covering all brands in their scope."""
-        proof = resolver.request_proof(
+        proof = resolver.request_token(
             session=group_session,
             agent=retrieval_agent,
             query="SELECT brand, amount FROM cost_analytics.group_costs",
@@ -345,8 +345,8 @@ class TestEntraGovernanceChain:
         session = gateway.authenticate_request(f"Bearer {token}", "No brand")
         assert session.user.brand_scope == []
 
-        with pytest.raises(UnauthorizedQueryError):
-            resolver.request_proof(
+        with pytest.raises(QueryAccessDeniedError):
+            resolver.request_token(
                 session=session,
                 agent=retrieval_agent,
                 query=self.QUERY,
@@ -367,7 +367,7 @@ class TestEntraGovernanceChain:
         )
         assert session.user.brand_scope == ["brand_b"]
         # Can still access brand_b data
-        proof = resolver.request_proof(
+        proof = resolver.request_token(
             session=session,
             agent=retrieval_agent,
             query=self.QUERY,

@@ -1,2 +1,2 @@
-# Agentic Governance Framework
+# Agent Data Access Governance Framework
 __version__ = "0.1.0"

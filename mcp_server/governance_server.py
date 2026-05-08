@@ -1,10 +1,10 @@
 """
 mcp_server/governance_server.py
 --------------------------------
-L4 — MCP Governance Server: Policy Enforcement Point (PEP), never a PDP.
+L4 — MCP Governance Server: Access Enforcer — it never decides policy.
 
 The MCP server does NOT evaluate whether a query is permissible.
-That decision has already been made and encoded in the Authorized Query Proof.
+That decision has already been made and encoded in the Signed Access Token.
 
 The MCP server:
   1. Verifies the proof's JWT signature
@@ -39,11 +39,11 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 from core.exceptions import (
-    ProofVerificationError,
-    UnauthorizedQueryError,
+    TokenVerificationError,
+    QueryAccessDeniedError,
 )
 from core.models import (
-    AuthorizedQueryProof,
+    SignedAccessToken,
     MCPToolCall,
     MCPToolResult,
 )
@@ -54,7 +54,7 @@ logger = logging.getLogger(__name__)
 
 class MCPGovernanceServer:
     """
-    MCP-style governance server acting as a pure Policy Enforcement Point.
+    MCP-style governance server acting as a pure Access Enforcer.
 
     In production this would be a FastAPI/ASGI service. Here it is implemented
     as an in-process class so it can be used directly in tests and examples
@@ -66,40 +66,40 @@ class MCPGovernanceServer:
     def __init__(
         self,
         policy_resolver: PolicyResolver,
-        require_proof: bool = True,
+        require_sat: bool = True,
         max_replay_cache_size: int = 100_000,
     ) -> None:
         self._resolver = policy_resolver
-        self._require_proof = require_proof
+        self._require_sat = require_sat
         self._max_replay_cache_size = max_replay_cache_size
-        # Replay protection: maps proof_id → expiry timestamp.
+        # Replay protection: maps token_id → expiry timestamp.
         # Entries are evicted when:
-        #   (a) the proof_id's expiry has passed (proof can no longer be verified anyway)
+        #   (a) the token_id's expiry has passed (proof can no longer be verified anyway)
         #   (b) the cache exceeds max_replay_cache_size (oldest entries evicted)
         # In production this should be a distributed store (Redis with TTLs).
-        self._used_proof_ids: dict[str, datetime] = {}
+        self._used_token_ids: dict[str, datetime] = {}
         logger.info(
-            "MCPGovernanceServer initialized (require_proof=%s, replay_cache_size=%d)",
-            require_proof, max_replay_cache_size,
+            "MCPGovernanceServer initialized (require_sat=%s, replay_cache_size=%d)",
+            require_sat, max_replay_cache_size,
         )
 
-    def _record_proof_use(self, proof_id: str, expires_at: datetime) -> None:
+    def _record_proof_use(self, token_id: str, expires_at: datetime) -> None:
         """Record a proof as used, evicting expired or oldest entries."""
         now = datetime.now(timezone.utc)
 
         # Evict expired entries (proofs past their expiry can't be reverified anyway)
-        expired = [pid for pid, exp in self._used_proof_ids.items() if exp <= now]
+        expired = [pid for pid, exp in self._used_token_ids.items() if exp <= now]
         for pid in expired:
-            del self._used_proof_ids[pid]
+            del self._used_token_ids[pid]
 
         # If still over the limit, evict the oldest entries (FIFO by insertion)
-        if len(self._used_proof_ids) >= self._max_replay_cache_size:
+        if len(self._used_token_ids) >= self._max_replay_cache_size:
             # dict preserves insertion order in Python 3.7+
-            to_remove = len(self._used_proof_ids) - self._max_replay_cache_size + 1
-            for pid in list(self._used_proof_ids.keys())[:to_remove]:
-                del self._used_proof_ids[pid]
+            to_remove = len(self._used_token_ids) - self._max_replay_cache_size + 1
+            for pid in list(self._used_token_ids.keys())[:to_remove]:
+                del self._used_token_ids[pid]
 
-        self._used_proof_ids[proof_id] = expires_at
+        self._used_token_ids[token_id] = expires_at
 
     # ── Main Dispatch ─────────────────────────────────────────────────────────
 
@@ -108,16 +108,16 @@ class MCPGovernanceServer:
         Handle an MCP tool call.
 
         If the call carries a valid proof → verify and execute.
-        If require_proof=True and no proof → reject.
-        If require_proof=False and no proof → execute with warning (dev mode only).
+        If require_sat=True and no proof → reject.
+        If require_sat=False and no proof → execute with warning (dev mode only).
         """
         if not call.is_governed():
-            if self._require_proof:
+            if self._require_sat:
                 return MCPToolResult(
                     success=False,
                     error=(
                         "Ungoverned call rejected. All tool calls must carry "
-                        "a valid Authorized Query Proof. "
+                        "a valid Signed Access Token. "
                         "Use the Policy Resolver to obtain one."
                     ),
                     governed=False,
@@ -140,12 +140,12 @@ class MCPGovernanceServer:
 
         # Step 1: Verify the proof
         try:
-            verified_proof = self._resolver.verify_proof(
+            verified_sat = self._resolver.verify_token(
                 token=proof.token,
                 submitted_query=query,
                 claiming_agent_id=agent_id,
             )
-        except ProofVerificationError as e:
+        except TokenVerificationError as e:
             logger.error("Proof verification failed: %s", e)
             return MCPToolResult(
                 success=False,
@@ -154,20 +154,20 @@ class MCPGovernanceServer:
             )
 
         # Step 2: Replay protection — a proof can only be used once
-        if verified_proof.proof_id in self._used_proof_ids:
+        if verified_sat.token_id in self._used_token_ids:
             return MCPToolResult(
                 success=False,
-                error=f"Proof '{verified_proof.proof_id}' has already been used. "
+                error=f"Proof '{verified_sat.token_id}' has already been used. "
                       "Proofs are single-use.",
                 governed=True,
             )
-        self._record_proof_use(verified_proof.proof_id, verified_proof.expires_at)
+        self._record_proof_use(verified_sat.token_id, verified_sat.expires_at)
 
         # Step 3: Determine execution path
         # IMPORTANT: copy filters so we don't mutate the proof's allowed_filters dict.
         # The pop() of "masked_columns" below would otherwise persist on the proof
         # object and confuse any subsequent inspection.
-        filters = copy.deepcopy(verified_proof.allowed_filters)
+        filters = copy.deepcopy(verified_sat.allowed_filters)
         masked_columns = filters.pop("masked_columns", [])
 
         if filters:
@@ -177,7 +177,7 @@ class MCPGovernanceServer:
                 query=query,
                 row_filters=filters,
                 masked_columns=masked_columns,
-                proof=verified_proof,
+                proof=verified_sat,
             )
         else:
             # Pass-through path: query already validated, no additional filters needed
@@ -185,10 +185,10 @@ class MCPGovernanceServer:
                 call=call,
                 query=query,
                 masked_columns=masked_columns,
-                proof=verified_proof,
+                proof=verified_sat,
             )
 
-        result.proof_id = verified_proof.proof_id
+        result.token_id = verified_sat.token_id
         result.governed = True
         return result
 
@@ -198,7 +198,7 @@ class MCPGovernanceServer:
         query: str,
         row_filters: dict[str, str],
         masked_columns: list[str],
-        proof: AuthorizedQueryProof,
+        proof: SignedAccessToken,
     ) -> MCPToolResult:
         """
         Filter push-down path.
@@ -213,8 +213,8 @@ class MCPGovernanceServer:
         """
         governed_query = self._inject_where_clauses(query, row_filters)
         logger.info(
-            "Filter push-down applied: proof=%s filters=%s",
-            proof.proof_id, row_filters,
+            "Filter push-down applied: sat=%s filters=%s",
+            proof.token_id, row_filters,
         )
 
         # Execute against the (simulated) data source
@@ -238,7 +238,7 @@ class MCPGovernanceServer:
         call: MCPToolCall,
         query: str,
         masked_columns: list[str],
-        proof: AuthorizedQueryProof,
+        proof: SignedAccessToken,
     ) -> MCPToolResult:
         """
         Pass-through path.
@@ -246,7 +246,7 @@ class MCPGovernanceServer:
         The query has already been validated by the Policy Resolver.
         Execute it unchanged.
         """
-        logger.info("Pass-through execution: proof=%s", proof.proof_id)
+        logger.info("Pass-through execution: sat=%s", proof.token_id)
         raw_result = self._simulate_query_execution(
             source=call.arguments.get("source", "unknown"),
             query=query,

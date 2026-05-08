@@ -1,4 +1,4 @@
-# Agentic Governance Framework
+# Agent Data Access Governance Framework
 
 A Python reference implementation addressing the core identity and data security gaps
 in LLM agentic systems — specifically the failure modes of RBAC/PBAC when AI agents
@@ -55,7 +55,7 @@ enter the data stack.
 │ heuristic        │            │  (RS256 JWT)                   │
 │ boundary         │            └───────────────┬────────────────┘
 │ tool-redirect    │                            │
-│ delimiter scans  │                            │ Authorized Query Proof
+│ delimiter scans  │                            │ Signed Access Token
 │                  │                            │  · query_hash (sha256)
 │ → BLOCKED        │                            │  · user_id + agent_id
 └─────────────────┘                            │  · session_id
@@ -64,10 +64,10 @@ enter the data stack.
                                                │  · allowed_filters
                                                │  · signature
                                                │  (non-delegable · single-use
-                                               │   · query-bound)
+                                               │   · operation-scoped)
                                                ▼
 ┌──────────────────────────────────────────────────────────────┐
-│       L4 — MCP Governance Server  (enforcement only)         │
+│       L4 — MCP Governance Server  (enforcement-only)         │
 │  verify signature · check expiry · replay protection         │
 │  → filter push-down (SQL WHERE)                              │
 │  → OR authorised query pass-through                          │
@@ -89,7 +89,7 @@ row-lvl  masking      push-down
 ─────────────────────────────────────────────────────────────────
 ```
 
-### Inverted Burden of Proof
+### Trust Model Inversion
 
 Traditional agentic systems are **reactive**: a token grants entry, and any subsequent
 query is presumed acceptable unless the receiving system detects a violation. Policy
@@ -172,22 +172,22 @@ Content flagged as `HIGH` or `CRITICAL` risk is blocked before it reaches the ag
 This addresses the prompt injection attack surface where a malicious database field
 hijacks the agent's tool calls while presenting a legitimate identity to RBAC.
 
-### Step 5: L3 — Policy Resolver (Authorized Query Proof)
+### Step 5: L3 — Policy Resolver (Signed Access Token)
 The Policy Resolver is the architectural heart of the framework. An eligible agent
 expresses intent (a query). The resolver:
 
 1. Looks up every data asset the query touches in the catalog
 2. Validates user + agent access rights against catalog policy for each asset
 3. Derives catalog-driven row filters and column masks
-4. Issues an **Authorized Query Proof** — a cryptographically signed JWT
+4. Issues an **Signed Access Token** — a cryptographically signed JWT
 
 The proof has five critical properties:
 
 | Property | Mechanism |
 |----------|-----------|
-| **Query-bound** | SHA-256 hash of the exact query embedded in the proof. The query cannot be substituted at the MCP layer. |
+| **Query-bound** | SHA-256 hash of the exact query embedded in the proof. The query hash is binding — any modification is detected at the MCP layer. |
 | **Non-delegable** | `agent_id` embedded in the proof. A different agent presenting the same proof is rejected. |
-| **Single-use** | The MCP server tracks used `proof_id` values. Replay attacks are blocked. |
+| **Single-use** | The MCP server tracks used `token_id` values. Replay attacks are blocked. |
 | **Short-lived** | Default TTL of 120 seconds. No refresh mechanism. |
 | **Policy-versioned** | `catalog_policy_version` embedded. Proofs issued under superseded policy versions are detectable. |
 
@@ -195,20 +195,20 @@ No agent can self-issue a proof. The private signing key lives only in the Polic
 The public key is distributed to MCP servers for verification.
 
 ### Step 6: L4 — MCP Governance Server (enforcement point)
-The MCP server is a **pure Policy Enforcement Point** — it never makes a policy decision.
+The MCP server is a **pure Access Enforcer** — it never makes a policy decision.
 
 On receiving a tool call with a proof:
 
 1. Verify the JWT signature against the Policy Resolver's public key
 2. Check proof expiry
 3. Verify `agent_id` in proof matches the claiming agent (non-delegable)
-4. Verify the submitted query hash matches the proof's `query_hash` (query-bound)
-5. Check the `proof_id` has not been used before (replay protection)
+4. Verify the submitted query hash matches the proof's `query_hash` (operation-scoped)
+5. Check the `token_id` has not been used before (replay protection)
 6. Route to one of two execution paths:
    - **Filter push-down**: translate catalog-derived row filters into SQL `WHERE` clauses injected into the query before execution (equivalent to Unity Catalog RLS or Starburst row filters)
    - **Pass-through**: execute the pre-validated query unchanged (when no additional filters are needed)
 
-Calls arriving without a proof are rejected outright (`require_proof=True` by default).
+Calls arriving without a proof are rejected outright (`require_sat=True` by default).
 
 ### Step 7: Cross-cutting — Context Governance
 Between agent hops, the context governance middleware intercepts each agent's output
@@ -333,7 +333,7 @@ This installs the framework as an editable package so imports resolve correctly
 from any working directory. The `[test]` extra adds pytest and coverage tools.
 
 Either option installs these core packages:
-- `pyjwt[crypto]` — RS256 JWT signing and verification for Authorized Query Proofs
+- `pyjwt[crypto]` — RS256 JWT signing and verification for Signed Access Tokens
 - `cryptography` — Fernet symmetric encryption for the governed cache
 - `pydantic` — typed models and identifier validation throughout the framework
 
@@ -447,7 +447,7 @@ agentic_governance/
 ├── core/                   # Shared models, exceptions, type definitions
 ├── auth/                   # Entra ID authentication, claim mapping, OBO modelling
 ├── catalog/                # L1 — data catalog (in-memory stub)
-├── policy_resolver/        # L3 — RS256-signed Authorized Query Proof issuance
+├── policy_resolver/        # L3 — RS256-signed Signed Access Token issuance
 ├── orchestrator/           # L2 — agent eligibility gating before invocation
 ├── mcp_server/             # L4 — proof enforcement, filter push-down
 ├── context_governance/     # Inter-agent context classification and redaction
@@ -616,7 +616,7 @@ Provides runtime-queryable APIs for classifications, sensitivity levels,
 access rights, consent state, and policy versioning.
 
 ### `policy_resolver/`
-Issues **Authorized Query Proofs** — cryptographically signed JWTs binding
+Issues **Signed Access Tokens** — cryptographically signed JWTs binding
 a specific query hash to user identity, agent identity, session, and catalog
 policy version. Short-lived, non-delegable, non-reusable.
 
@@ -625,7 +625,7 @@ Multi-agent orchestrator with catalog-policy-driven agent eligibility gating.
 Non-eligible agents are excluded before invocation, not filtered after.
 
 ### `mcp_server/`
-MCP-style tool server that acts as a pure **Policy Enforcement Point**.
+MCP-style tool server that acts as a pure **Access Enforcer**.
 Verifies proof signature and expiry, then either executes pre-validated
 queries or applies filter push-down from catalog policy semantics.
 
@@ -651,10 +651,10 @@ agent hops. Each agent receives only the minimum context required.
 
 ## Security Model
 
-This framework inverts the burden of proof:
+This framework inverts the trust model:
 
 - **Reactive (today):** Token grants entry → query presumed acceptable → violations detected downstream
-- **Proactive (this framework):** No query reaches a data source without a signed, query-bound proof of prior authorization
+- **Proactive (this framework):** No query reaches a data source without a signed, operation-scoped proof of prior authorization
 
 The MCP server never makes policy decisions. It only enforces proofs already
 issued by the Policy Resolver.
@@ -673,7 +673,7 @@ issued by the Policy Resolver.
 | Redis cache cross-identity | `cache` | Identity-scoped keys + policy-version TTLs |
 | MCP as decision point | `mcp_server` | Enforcement-only — proof verifies, never decides |
 | Context window as shared memory | `agents/session_isolation` | Declared need-to-know via SessionStateStore |
-| Entra ID identity ≠ query compliance | `auth/entra_integration` | OID embedded in Authorized Query Proof; groups → brand scope; roles → clearance |
+| Entra ID identity ≠ query compliance | `auth/entra_integration` | OID embedded in Signed Access Token; groups → brand scope; roles → clearance |
 | OBO delegation drops policy context | `auth/claim_mapper` | `apply_obo_constraints()` degrades context explicitly; proof carries original context |
 
 ---
@@ -699,5 +699,5 @@ issued by the Policy Resolver.
   to resolve the full group list in the overage case.
 - OBO delegation loses app role claims. The `apply_obo_constraints()` method models this
   explicitly, but downstream agents operating on OBO tokens must be designed to work with
-  `brand_scope=[]` and `clearance=INTERNAL` unless the original Authorized Query Proof is
+  `brand_scope=[]` and `clearance=INTERNAL` unless the original Signed Access Token is
   passed alongside the OBO token.

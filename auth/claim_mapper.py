@@ -168,7 +168,7 @@ class EntraClaimMapper:
           - clearance_level: reduced to INTERNAL (the safe default)
           - roles:           cleared
 
-        The receiving agent must re-request a fresh Authorized Query Proof
+        The receiving agent must re-request a fresh Signed Access Token
         under the degraded context rather than inheriting the original context.
         This makes the OBO identity loss EXPLICIT in the governance model.
 
@@ -195,7 +195,7 @@ class EntraClaimMapper:
                 "degradation_reason": (
                     "OBO delegation loses app role assignments. "
                     "Brand scope and clearance must be re-established via "
-                    "the Policy Resolver with a fresh Authorized Query Proof."
+                    "the Policy Resolver with a fresh Signed Access Token."
                 ),
             },
         )

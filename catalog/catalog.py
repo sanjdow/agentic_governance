@@ -1,7 +1,7 @@
 """
 catalog/catalog.py
 ------------------
-L1 — Data Catalog: The sole source of governance truth.
+L1 — Data Catalog: The governance authority.
 
 Governance rules must not be defined in gateways, orchestrators, or MCP servers.
 They must be derived from the data catalog — the system of record for data
@@ -87,7 +87,7 @@ class DataCatalog:
 
         Returns (allowed: bool, reason: str).
         This is the core policy decision that the Policy Resolver calls
-        before issuing an Authorized Query Proof.
+        before issuing an Signed Access Token.
         """
         asset = self.get_asset(asset_id)
 
@@ -153,7 +153,7 @@ class DataCatalog:
         """
         Derive catalog-driven row-level filters for a user/asset combination.
 
-        These filters are embedded in the Authorized Query Proof and pushed
+        These filters are embedded in the Signed Access Token and pushed
         down to the data source by the MCP enforcement server — implementing
         the same semantic as Starburst/Trino row filters or Unity Catalog RLS.
 

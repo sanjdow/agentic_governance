@@ -36,7 +36,7 @@ from mcp_server.governance_server import MCPGovernanceServer
 from core.models import (
     AgentContext, AccessRight, SensitivityLevel, MCPToolCall,
 )
-from core.exceptions import AgentIneligibleError, UnauthorizedQueryError
+from core.exceptions import AgentIneligibleError, QueryAccessDeniedError
 
 
 def sep(title: str) -> None:
@@ -56,7 +56,7 @@ def main() -> None:
 
     resolver = PolicyResolver(catalog, proof_ttl_seconds=120)
     elig = AgentEligibilityResolver(catalog)
-    mcp = MCPGovernanceServer(resolver, require_proof=True)
+    mcp = MCPGovernanceServer(resolver, require_sat=True)
 
     # Define agents
     retrieval_agent = AgentContext(
@@ -101,13 +101,13 @@ def main() -> None:
     print(f"  L2 Eligibility:    ✓ ELIGIBLE ({decision.reason[:50]})")
 
     query = "SELECT model, defect_code, rate FROM quality.division_defect_rates WHERE quarter='Q1'"
-    proof = resolver.request_proof(
+    proof = resolver.request_token(
         session=session,
         agent=retrieval_agent,
         query=query,
         asset_ids=["division_quality_metrics"],
     )
-    print(f"  L3 Proof issued:   proof_id={proof.proof_id[:16]}...")
+    print(f"  L3 Proof issued:   token_id={proof.token_id[:16]}...")
     print(f"  Proof user_id:     {proof.user_id}  (Entra OID — immutable anchor)")
     print(f"  Proof query_hash:  {proof.query_hash[:40]}...")
 
@@ -137,7 +137,7 @@ def main() -> None:
     print(f"  Brand scope:   {vw_session.user.brand_scope}  ← full Corp Group access")
     print(f"  Clearance:     {vw_session.user.clearance_level}")
 
-    vw_proof = resolver.request_proof(
+    vw_proof = resolver.request_token(
         session=vw_session,
         agent=retrieval_agent,
         query="SELECT brand, amount, cost_center FROM cost_analytics.group_costs",
@@ -212,13 +212,13 @@ def main() -> None:
 
     print("\n  Attempting proof request with degraded OBO context:")
     try:
-        resolver.request_proof(
+        resolver.request_token(
             session=obo_session,
             agent=retrieval_agent,
             query="SELECT model, rate FROM quality.division_defect_rates",
             asset_ids=["division_quality_metrics"],
         )
-    except UnauthorizedQueryError as e:
+    except QueryAccessDeniedError as e:
         print(f"  ✗ DENIED: {e}")
         print("  → OBO context degradation is enforced — degraded session cannot")
         print("    request proofs for brand-restricted assets.")
@@ -262,7 +262,7 @@ def main() -> None:
   2         Corp Group architect — broader scope         ✓ Multi-brand proof with all filters
   3         Managed Identity (app-only)                ✗ Blocked — no user identity in token
   4         OBO delegation downstream                  ✗ Degraded — brand/clearance lost
-  5         Proof as remedy (OID embedded in JWT)      ✓ Identity + query bound, tamper-evident
+  5         Proof as remedy (OID embedded in JWT)      ✓ Identity + operation-scoped, tamper-evident
   """)
 
 
