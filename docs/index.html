@@ -4,9 +4,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Data Access Governance for LLM Agents</title>
-<meta name="description" content="Why RBAC and identity tokens break down when LLM agents enter the data stack — and a data access governance model that fixes it.">
+<meta name="description" content="Data access governance for LLM agents. Applies established PDP/PEP patterns, signed authorization tokens, and catalog-as-authority to the specific failure modes of non-deterministic agent query generation.">
 <meta property="og:title" content="Data Access Governance for LLM Agents">
-<meta property="og:description" content="Why RBAC and identity tokens break down when LLM agents enter the data stack — and a data access governance model that fixes it.">
+<meta property="og:description" content="Data access governance for LLM agents. Applies established PDP/PEP patterns, signed authorization tokens, and catalog-as-authority to the specific failure modes of non-deterministic agent query generation.">
 <meta property="og:type" content="article">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -744,6 +744,80 @@ footer {
         The model inverts the prevailing trust assumption. In token-based systems, the trust model is <em>reactive</em>: a token grants entry and any subsequent query is presumed acceptable unless the receiving system detects a violation. Here, it is <em>proactive</em>: no query reaches a data source unless it arrives with a signed attestation that it has already been found compliant.
       </p>
 
+
+      <!-- Prior Art -->
+      <h2 id="prior-art">Standing on established foundations</h2>
+
+      <p>
+        The architectural patterns in this framework are grounded in two decades of prior art
+        in access control, data governance, and zero-trust security. The contribution here is
+        not the invention of these patterns — it is their application and extension to the
+        specific failure modes introduced by non-deterministic LLM query generation inside
+        agentic systems.
+      </p>
+
+      <div class="proof-box">
+        <div class="proof-box-header">
+          <span class="proof-box-title">Prior art this work builds on</span>
+          <span class="proof-box-sub">two decades of established patterns</span>
+        </div>
+        <div class="proof-row">
+          <div class="proof-key">XACML (2003)</div>
+          <div class="proof-val">OASIS formalized the Policy Decision Point / Policy Enforcement Point / Policy Information Point / Policy Administration Point split over twenty years ago. The decision-vs-enforcement separation at the core of this framework is XACML&#8217;s foundational principle. Apache Ranger, OPA, and every modern data governance platform implement this pattern.</div>
+        </div>
+        <div class="proof-row">
+          <div class="proof-key">Apache Ranger</div>
+          <div class="proof-val">Ranger Admin is the decision point; Ranger plugins are enforcement points — the exact PDP/PEP split. Catalog-driven row and column filtering at the data source layer is Ranger&#8217;s core pattern, predating this work entirely.</div>
+        </div>
+        <div class="proof-row">
+          <div class="proof-key">Open Policy Agent</div>
+          <div class="proof-val">OPA externalizes policy decisions from enforcement, with policy-as-code pulled from a central store. Standard in Kubernetes, service mesh, and data platforms since 2016. The orchestrator&#8217;s eligibility gating follows the same decision-before-invocation principle.</div>
+        </div>
+        <div class="proof-row">
+          <div class="proof-key">Catalog as governance authority</div>
+          <div class="proof-val">Databricks Unity Catalog, Snowflake Horizon, Microsoft Purview, Collibra, Immuta, Privacera, and AWS Lake Formation all implement catalog-as-source-of-truth with policy decisions separated from enforcement. This is the dominant paradigm in enterprise data governance.</div>
+        </div>
+        <div class="proof-row">
+          <div class="proof-key">Signed authorization context</div>
+          <div class="proof-val">Macaroons (Google, 2014), SPIFFE/SPIRE workload identity, GCP signed URLs, AWS STS session tokens, and Zanzibar consistency tokens all implement the pattern of carrying pre-validated authorization in a signed artifact across service hops. This is foundational zero-trust architecture.</div>
+        </div>
+        <div class="proof-row">
+          <div class="proof-key">Short-lived credentials</div>
+          <div class="proof-val">AWS STS temporary credentials, OAuth 2.0 access tokens with short TTLs, and SPIRE SVID rotation all establish the principle that credentials should be ephemeral and scoped. The 120-second token TTL here follows the same principle.</div>
+        </div>
+      </div>
+
+      <!-- Original Contributions -->
+      <div class="callout" style="margin-top:24px;">
+        <span class="callout-label">Original contributions of this work</span>
+        <p>
+          What this framework adds — specifically for LLM agentic systems — beyond the established patterns above:
+        </p>
+      </div>
+
+      <div class="proof-box" style="margin-top:0;">
+        <div class="proof-row">
+          <div class="proof-key">Query-hash binding</div>
+          <div class="proof-val">Existing signed credential systems scope tokens to a resource, a session, or an identity. They do not bind to the exact query string. LLM agents generate queries non-deterministically — the same prompt can produce a different, more permissive query on each invocation. Binding the SHA-256 hash of the canonicalized query into the signed token closes this gap entirely: any deviation from the authorized query is detected at enforcement time.</div>
+        </div>
+        <div class="proof-row">
+          <div class="proof-key">Single-use, non-delegable, per-query tokens</div>
+          <div class="proof-val">Standard session tokens are reusable, delegable, and scoped to a resource not a query. Here each token is issued for one specific data operation, is single-use (replay protection at the enforcer), non-delegable (agent ID bound in the payload), and expires in seconds. This is a tighter scope than any of the prior art systems described above.</div>
+        </div>
+        <div class="proof-row">
+          <div class="proof-key">MCP as enforcement substrate</div>
+          <div class="proof-val">The Model Context Protocol is the emerging standard for how LLM agents call tools and data sources. This framework applies the PDP/PEP split specifically to MCP tool calls — treating the MCP server as a pure enforcement point that verifies a signed token before executing any data operation. This application to MCP is new.</div>
+        </div>
+        <div class="proof-row">
+          <div class="proof-key">Ten LLM-specific failure modes</div>
+          <div class="proof-val">The failure mode taxonomy addresses risks that do not exist in traditional API governance: cross-call aggregation (agent correlates results across permitted calls in its context window), context leakage between agent hops, prompt injection via retrieved data hijacking tool calls, GPU KV cache cross-tenant contamination, and OBO delegation silently dropping policy context in multi-agent chains. These are LLM-native attack surfaces with no equivalent in the XACML / Ranger / OPA threat model.</div>
+        </div>
+        <div class="proof-row">
+          <div class="proof-key">Entra ID OBO degradation modelling</div>
+          <div class="proof-val">On-Behalf-Of delegation in Microsoft Entra ID silently strips app role assignments, losing data scope and clearance level in agent chains. This is modelled explicitly via <code>apply_obo_constraints()</code>, which degrades the UserContext rather than silently inheriting stale context — and embeds the original Entra OID in the signed token to preserve identity across hops.</div>
+        </div>
+      </div>
+
       <!-- Architecture -->
       <h2 id="architecture">Architecture — Four governance layers</h2>
 
@@ -975,6 +1049,7 @@ python examples/demo_entra_auth.py</code></pre>
     <div class="sidebar-section">
       <div class="sidebar-section-title">On this page</div>
       <ul class="toc-list">
+        <li><a href="#prior-art">Prior art</a></li>
         <li><a href="#architecture">Architecture</a></li>
         <li><a href="#failure-modes">Failure modes</a></li>
         <li><a href="#proof">Signed Access Token</a></li>
