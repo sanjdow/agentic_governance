@@ -694,7 +694,7 @@ footer {
     </svg>
     <div class="hero-img-text">
       <h2>Agent Access Control</h2>
-      <p>Query-bound access control for LLM agent calls</p>
+      <p>Data access governance for LLM agent calls</p>
     </div>
   </div>
 </div>
@@ -846,15 +846,15 @@ footer {
         <div class="proof-row"><div class="proof-key">exp</div><div class="proof-val">Expiry timestamp. Default 120 seconds from issuance. No refresh — expired proofs are cryptographically unextendable.</div></div>
       </div>
 
-<pre><code><span class="cm"># Request a proof from the Policy Resolver</span>
-proof = resolver.<span class="fn">request_proof</span>(
-    session=session,           <span class="cm"># contains UserContext with Entra OID</span>
+<pre><code><span class="cm"># Request a Signed Access Token from the Policy Resolver</span>
+sat = resolver.<span class="fn">request_token</span>(
+    session=session,          <span class="cm"># contains UserContext with Entra OID</span>
     agent=retrieval_agent,
     query=<span class="str">"SELECT model, rate FROM quality.defect_rates"</span>,
     asset_ids=[<span class="str">"quality_metrics"</span>],
 )
 
-<span class="cm"># Make a governed MCP call — proof travels with the query</span>
+<span class="cm"># Make a governed MCP call — token travels with the data request</span>
 result = mcp.<span class="fn">handle_tool_call</span>(MCPToolCall(
     tool=<span class="str">"query_datasource"</span>,
     arguments={
@@ -862,7 +862,7 @@ result = mcp.<span class="fn">handle_tool_call</span>(MCPToolCall(
         <span class="str">"query"</span>: query,
         <span class="str">"agent_id"</span>: <span class="str">"retrieval_agent"</span>,
     },
-    proof=proof,    <span class="cm"># ungoverned calls rejected at L4</span>
+    proof=sat,    <span class="cm"># ungoverned calls rejected at L4</span>
 ))</code></pre>
 
       <!-- Entra ID -->
@@ -916,12 +916,12 @@ result = mcp.<span class="fn">handle_tool_call</span>(MCPToolCall(
         <div class="module-row"><span class="module-path">catalog/</span><span class="module-desc">L1 data catalog. In-memory stub with runtime-queryable APIs for classifications, access rights, consent state, row filters, and policy versioning. Replace with a real catalog (Databricks Unity Catalog, Microsoft Purview) in production.</span></div>
         <div class="module-row"><span class="module-path">policy_resolver/</span><span class="module-desc">L3 Policy Resolver. Issues RS256-signed Signed Access Tokens. Handles per-proof and session-level revocation. Private key never leaves this module.</span></div>
         <div class="module-row"><span class="module-path">orchestrator/</span><span class="module-desc">L2 agent eligibility. Resolves eligible agents against catalog policy before invocation. Blocks agents where the user's clearance is below the agent's max_sensitivity ceiling.</span></div>
-        <div class="module-row"><span class="module-path">mcp_server/</span><span class="module-desc">L4 MCP Governance Server. Pure enforcement point. Verifies signature, expiry, and replay. Routes to filter push-down or pass-through. Never decides policy.</span></div>
+        <div class="module-row"><span class="module-path">mcp_server/</span><span class="module-desc">L4 MCP Governance Server. Pure access enforcer. Verifies token signature, expiry, and replay. Routes to filter push-down or pass-through. Never decides policy independently.</span></div>
         <div class="module-row"><span class="module-path">context_governance/</span><span class="module-desc">Inter-agent context middleware. Heuristic PII and sensitivity classifier with overlapping chunk windows to prevent boundary evasion. Redacts content above the receiving agent's clearance ceiling.</span></div>
         <div class="module-row"><span class="module-path">injection_detection/</span><span class="module-desc">4-layer prompt injection detector: critical patterns, boundary analysis, tool-redirect detection, delimiter scanning. Applied before any retrieved content reaches an agent's context.</span></div>
         <div class="module-row"><span class="module-path">cache/</span><span class="module-desc">Governed Redis wrapper. Identity-scoped keys (user + agent + query hash). Policy-version-bound TTLs. Fernet encryption at rest. Falls back to in-process store when Redis is unavailable.</span></div>
         <div class="module-row"><span class="module-path">agents/</span><span class="module-desc">Session isolation. SessionStateStore with need-to-know ContextRequest. Agents declare which output types and field names they require — no raw context forwarding between hops.</span></div>
-        <div class="module-row"><span class="module-path">core/</span><span class="module-desc">Shared types. All models, exceptions, and identifier validation. SensitivityLevel comparisons. AuthorizedQueryProof schema. SQL-injection-safe identifier enforcement on UserContext and AgentContext.</span></div>
+        <div class="module-row"><span class="module-path">core/</span><span class="module-desc">Shared types. All models, exceptions, and identifier validation. SensitivityLevel comparisons. SignedAccessToken schema. SQL-injection-safe identifier enforcement on UserContext and AgentContext.</span></div>
       </div>
 
       <!-- Install -->
@@ -951,7 +951,7 @@ python examples/full_scenario.py
 python examples/demo_entra_auth.py</code></pre>
 
       <div class="callout callout-warn">
-        <span class="callout-label">Entra ID production configuration</span>
+        <span class="callout-label">Production configuration — Entra ID</span>
         <p>Set <code>ENTRA_TENANT_ID</code>, <code>ENTRA_CLIENT_ID</code>, and <code>ENTRA_AUDIENCE</code> environment variables. Add <code>"groupMembershipClaims": "SecurityGroup"</code> to your Azure app registration manifest so group OIDs appear in tokens. See the <a href="https://github.com/sanjdow/agentic_governance/blob/master/README.md#entra-id-configuration" target="_blank" rel="noopener">full README</a> for the complete configuration reference.</p>
       </div>
 
@@ -977,7 +977,7 @@ python examples/demo_entra_auth.py</code></pre>
       <ul class="toc-list">
         <li><a href="#architecture">Architecture</a></li>
         <li><a href="#failure-modes">Failure modes</a></li>
-        <li><a href="#proof">Query proof</a></li>
+        <li><a href="#proof">Signed Access Token</a></li>
         <li><a href="#entra-id">Entra ID</a></li>
         <li><a href="#modules">Modules</a></li>
         <li><a href="#install">Installation</a></li>
