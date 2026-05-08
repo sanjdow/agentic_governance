@@ -23,6 +23,97 @@ enter the data stack.
 
 ---
 
+
+---
+
+## Standing on Established Foundations
+
+The architectural patterns in this framework are grounded in two decades of prior art
+in access control, data governance, and zero-trust security. The contribution here is
+not the invention of these patterns — it is their application and extension to the
+specific failure modes introduced by non-deterministic LLM query generation inside
+agentic systems.
+
+### Prior art this work builds on
+
+**XACML (OASIS, 2003)**
+XACML formalized the Policy Decision Point / Policy Enforcement Point / Policy
+Information Point / Policy Administration Point split over twenty years ago.
+The decision-vs-enforcement separation at the core of this framework is XACML's
+foundational principle. Apache Ranger, Open Policy Agent, and every modern data
+governance platform implement this pattern.
+
+**Apache Ranger**
+Ranger Admin is the decision point; Ranger plugins are enforcement points — the
+exact PDP/PEP split applied at the data source layer. Catalog-driven row and column
+filtering is Ranger's core pattern, predating this work entirely.
+
+**Open Policy Agent (OPA)**
+OPA externalizes policy decisions from enforcement, with policy-as-code pulled from
+a central store. Standard in Kubernetes, service mesh, and data platforms since 2016.
+The orchestrator's eligibility gating follows the same decision-before-invocation
+principle.
+
+**Catalog as governance authority**
+Databricks Unity Catalog, Snowflake Horizon, Microsoft Purview, Collibra, Immuta,
+Privacera, and AWS Lake Formation all implement catalog-as-source-of-truth with
+policy decisions separated from enforcement. This is the dominant paradigm in
+enterprise data governance.
+
+**Signed authorization context**
+Macaroons (Google, 2014), SPIFFE/SPIRE workload identity, GCP signed URLs, AWS STS
+session tokens, and Zanzibar consistency tokens all implement the pattern of carrying
+pre-validated authorization in a signed artifact across service hops. This is
+foundational zero-trust architecture.
+
+**Short-lived credentials**
+AWS STS temporary credentials, OAuth 2.0 access tokens with short TTLs, and SPIRE
+SVID rotation all establish the principle that credentials should be ephemeral and
+scoped. The 120-second token TTL here follows the same principle.
+
+---
+
+## Original Contributions
+
+What this framework adds — specifically for LLM agentic systems — beyond the
+established patterns above:
+
+**Query-hash binding**
+Existing signed credential systems scope tokens to a resource, a session, or an
+identity. They do not bind to the exact query string. LLM agents generate queries
+non-deterministically — the same prompt can produce a different, more permissive
+query on each invocation. Binding the SHA-256 hash of the canonicalized query into
+the signed token closes this gap: any deviation from the authorized query is detected
+at enforcement time.
+
+**Single-use, non-delegable, per-query tokens**
+Standard session tokens are reusable, delegable, and scoped to a resource not a
+query. Here each token is issued for one specific data operation, is single-use
+(replay protection at the enforcer), non-delegable (agent ID bound in the payload),
+and expires in seconds — a tighter scope than any of the prior art systems above.
+
+**MCP as enforcement substrate**
+The Model Context Protocol is the emerging standard for how LLM agents call tools
+and data sources. This framework applies the PDP/PEP split specifically to MCP tool
+calls — treating the MCP server as a pure enforcement point that verifies a signed
+token before executing any data operation.
+
+**Ten LLM-specific failure modes**
+The failure mode taxonomy addresses risks that do not exist in traditional API
+governance: cross-call aggregation (agent correlates results across permitted calls
+in its context window), context leakage between agent hops, prompt injection via
+retrieved data hijacking tool calls, GPU KV cache cross-tenant contamination, and
+OBO delegation silently dropping policy context in multi-agent chains. These are
+LLM-native attack surfaces with no equivalent in the XACML / Ranger / OPA threat
+model.
+
+**Entra ID OBO degradation modelling**
+On-Behalf-Of delegation in Microsoft Entra ID silently strips app role assignments,
+losing data scope and clearance level in agent chains. This is modelled explicitly
+via `apply_obo_constraints()`, which degrades the UserContext rather than silently
+inheriting stale context — and embeds the original Entra OID in the signed token to
+preserve identity across hops.
+
 ## Architecture
 
 ### High-Level Flow
