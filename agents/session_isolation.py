@@ -1,28 +1,3 @@
-"""
-agents/session_isolation.py
-----------------------------
-Session Isolation: Need-to-know context design between agent hops.
-
-Problems addressed:
-  1. Context window as uncontrolled shared memory across agent chains
-  2. GPU KV cache prefix caching sharing internal states across requests
-  3. Agents accumulating data outside any governed store
-
-This module provides:
-  - SessionBoundary: Wraps each agent invocation in an isolated session scope
-  - ContextFilter: Enforces need-to-know — agents receive only the minimum
-    context required for their specific task
-  - SessionStateStore: A governed intermediary that mediates what each
-    agent receives, rather than passing raw context forward
-
-Design principle:
-  Instead of Agent A passing its full context to Agent B, Agent A writes
-  structured outputs to the SessionStateStore. Agent B receives only the
-  fields it has declared it needs — nothing more.
-
-  This breaks the "context window as shared memory" attack surface.
-"""
-
 from __future__ import annotations
 
 import logging

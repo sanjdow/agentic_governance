@@ -1,32 +1,3 @@
-"""
-auth/token_factory.py
----------------------
-Test token factory: generates realistic Entra ID-style JWTs for testing.
-
-This module exists so the test suite can exercise the full token validation
-and claim-mapping pipeline without requiring real Azure credentials or a
-live Entra ID tenant.
-
-Generated tokens are signed with an ephemeral RSA key pair created at
-factory construction time. The factory exposes the public key so tests
-can configure the validator to accept these tokens.
-
-Usage in tests:
-    factory = EntraTokenFactory(config)
-    validator = EntraTokenValidator(config)
-    validator.set_test_keypair(factory.public_key_pem)
-
-    token = factory.make_user_token(
-        oid="test-oid-div-analyst",
-        upn="analyst@division-a.example.com",
-        groups=["Division-A-Analysts"],
-        roles=["DataAnalyst"],
-    )
-    claims = validator.validate(token)
-
-IMPORTANT: These tokens are for testing only. Never use in production.
-"""
-
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
@@ -41,9 +12,6 @@ from auth.entra_config import EntraConfig
 
 
 class EntraTokenFactory:
-    """
-    Generates Entra ID-style JWTs signed with an ephemeral test key pair.
-    """
 
     def __init__(self, config: EntraConfig) -> None:
         self._config = config
@@ -55,7 +23,7 @@ class EntraTokenFactory:
 
     @property
     def public_key_pem(self) -> str:
-        """PEM-encoded public key to register with EntraTokenValidator."""
+    
         return self._public_key.public_bytes(
             encoding=serialization.Encoding.PEM,
             format=serialization.PublicFormat.SubjectPublicKeyInfo,
@@ -80,18 +48,7 @@ class EntraTokenFactory:
         ttl_seconds: int = 3600,
         extra_claims: Optional[dict[str, Any]] = None,
     ) -> str:
-        """
-        Generate a delegated-permission user token (simulates interactive login).
 
-        Args:
-            oid:      Object ID — the canonical Entra identity anchor
-            upn:      User Principal Name (email-format login)
-            name:     Display name
-            groups:   Group OIDs or display names the user belongs to
-            roles:    App role values assigned to the user
-            scp:      Delegated permission scopes
-            ttl_seconds: Token lifetime in seconds
-        """
         now = datetime.now(timezone.utc)
         payload = {
             # Standard claims
@@ -128,13 +85,7 @@ class EntraTokenFactory:
         roles: Optional[list[str]] = None,
         ttl_seconds: int = 3600,
     ) -> str:
-        """
-        Generate an app-only (Managed Identity / client credentials) token.
-
-        This simulates the token an LLM agent receives when calling downstream
-        services using its Managed Identity — critically, with NO user context.
-        This is the "agent vs user identity" gap demonstrated in the presentation.
-        """
+        # simulates Managed Identity — no user context, just the service principal
         now = datetime.now(timezone.utc)
         payload = {
             "jti":   str(uuid4()),
@@ -161,18 +112,7 @@ class EntraTokenFactory:
         downstream_scope: str,
         ttl_seconds: int = 3600,
     ) -> str:
-        """
-        Simulate an OBO (On-Behalf-Of) token for a downstream service call.
-
-        OBO preserves: oid, sub, upn, tid
-        OBO loses:     roles (from app registration, not propagated)
-                       groups (may be absent depending on downstream app config)
-                       Custom claims
-
-        This models exactly the policy context loss described in the Spectrum
-        and Entra ID slides — and why embedding context in the Authorized
-        Query Proof is necessary.
-        """
+        # OBO preserves oid/upn but loses roles and groups — that's the whole problem
         now = datetime.now(timezone.utc)
         return jwt.encode(
             {

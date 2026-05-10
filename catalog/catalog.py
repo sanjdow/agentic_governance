@@ -1,21 +1,3 @@
-"""
-catalog/catalog.py
-------------------
-L1 — Data Catalog: The governance authority.
-
-Governance rules must not be defined in gateways, orchestrators, or MCP servers.
-They must be derived from the data catalog — the system of record for data
-classifications, sensitivity levels, access rights, and regulatory constraints.
-
-In production, replace this in-memory implementation with calls to:
-  - Databricks Unity Catalog REST API
-  - Microsoft Purview API
-  - enterprise data catalog / Starburst Galaxy Catalog
-  - Any catalog exposing a runtime-queryable policy API
-
-The key architectural requirement: sub-100ms policy resolution at agent-call frequency.
-"""
-
 from __future__ import annotations
 
 import hashlib
@@ -55,7 +37,6 @@ class DataCatalog:
         self._consent_state: dict[str, dict[str, bool]] = {}  # {subject_id: {purpose: bool}}
         self._policy_version = self._compute_version()
 
-    # ── Asset Registration ────────────────────────────────────────────────────
 
     def register_asset(self, asset: DataAsset) -> None:
         """Register a data asset. Triggers policy version bump."""
@@ -73,7 +54,6 @@ class DataCatalog:
     def find_assets_by_table(self, table: str) -> list[DataAsset]:
         return [a for a in self._assets.values() if a.table == table]
 
-    # ── Policy Resolution ─────────────────────────────────────────────────────
 
     def resolve_access(
         self,
@@ -147,24 +127,7 @@ class DataCatalog:
 
         return True, "Access granted"
 
-    def derive_row_filters(
-        self, user: UserContext, asset: DataAsset
-    ) -> dict[str, str]:
-        """
-        Derive catalog-driven row-level filters for a user/asset combination.
-
-        These filters are embedded in the Signed Access Token and pushed
-        down to the data source by the MCP enforcement server — implementing
-        the same semantic as Starburst/Trino row filters or Unity Catalog RLS.
-
-        Returns a dict of {filter_name: sql_fragment}.
-
-        Note: identifier values used in filters are validated against the
-        _SAFE_IDENTIFIER_RE pattern at UserContext construction time, so direct
-        SQL injection through user_id or brand_scope is prevented. However,
-        this is defense-in-depth — production systems should use parameterized
-        queries with sqlglot rather than string templates.
-        """
+    def derive_row_filters(self, user: UserContext, asset: DataAsset) -> dict[str, str]:
         filters: dict[str, str] = {}
 
         # Brand-level row isolation (e.g. division analysts only see division rows)
@@ -212,7 +175,6 @@ class DataCatalog:
 
         return masked
 
-    # ── Consent Management ────────────────────────────────────────────────────
 
     def record_consent(self, subject_id: str, asset_id: str, granted: bool) -> None:
         """Record or withdraw consent for a data subject and asset."""
@@ -224,7 +186,6 @@ class DataCatalog:
     def _check_consent(self, subject_id: str, asset_id: str) -> bool:
         return self._consent_state.get(subject_id, {}).get(asset_id, False)
 
-    # ── Policy Versioning ─────────────────────────────────────────────────────
 
     def get_policy_version(self) -> PolicyVersion:
         """
@@ -238,7 +199,6 @@ class DataCatalog:
         )
 
     def _compute_version(self) -> str:
-        """Derive a deterministic version checksum from current catalog state."""
         state = json.dumps(
             {
                 "assets": {aid: a.model_dump() for aid, a in sorted(self._assets.items())},
@@ -252,7 +212,6 @@ class DataCatalog:
         )
         return "v:" + hashlib.sha256(state.encode()).hexdigest()[:16]
 
-    # ── Diagnostics ───────────────────────────────────────────────────────────
 
     def list_assets(self) -> list[DataAsset]:
         return list(self._assets.values())

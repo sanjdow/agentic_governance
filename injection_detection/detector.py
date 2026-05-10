@@ -1,31 +1,3 @@
-"""
-injection_detection/detector.py
---------------------------------
-Prompt Injection Detector: Multi-layer defence before tool dispatch.
-
-Problem addressed:
-  Malicious instructions embedded in data the agent reads — a document,
-  a database field, a web page — redirect the agent's behaviour.
-  The agent then makes tool calls under its own permitted identity.
-  RBAC sees a legitimate principal. The governance layer is completely blind.
-
-This detector intercepts content before it reaches the agent's reasoning loop,
-classifying it as safe or injected across multiple detection layers:
-
-  Layer 1: Heuristic pattern matching (zero latency, high recall)
-  Layer 2: Instruction boundary analysis (detects role/context switches)
-  Layer 3: Suspicious command detection (tool-call redirection patterns)
-
-In production, augment with:
-  Layer 4: LLM-based semantic classifier (higher precision, ~100ms latency)
-  Layer 5: Embedding similarity against known injection templates
-
-References:
-  - OWASP LLM Top 10: LLM01 Prompt Injection
-  - Greshake et al. 2023: "Not What You've Signed Up For: Compromising
-    Real-World LLM-Integrated Applications with Indirect Prompt Injection"
-"""
-
 from __future__ import annotations
 
 import logging

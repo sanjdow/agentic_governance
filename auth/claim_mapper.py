@@ -1,44 +1,3 @@
-"""
-auth/claim_mapper.py
---------------------
-Maps validated Entra ID token claims to the framework's UserContext.
-
-This is the translation layer between Microsoft's identity model and
-the governance framework's policy model. It answers:
-
-  "Given what Entra ID tells us about this user, what brand_scope and
-   clearance_level should the governance framework apply?"
-
-The mapping is driven by two tables in EntraConfig:
-  - brand_group_map:   group display-name or OID  → brand_scope values
-  - clearance_role_map: app role value             → SensitivityLevel string
-
-Why this layer exists
----------------------
-Entra ID knows about principals, group memberships, and app roles.
-It knows nothing about data mesh brand scopes, data mesh sensitivity levels,
-or the distinction between being ALLOWED to authenticate vs. being
-AUTHORIZED to execute a specific query against a specific data asset.
-
-This mapper is the bridge — it converts Entra's identity facts into
-governance-framework policy facts. The resulting UserContext is then
-the root of every trust decision in L2 (eligibility), L3 (proof),
-and L4 (enforcement).
-
-OBO delegation gap
--------------------
-When an agent uses OBO to call a downstream service on behalf of a user,
-Entra propagates the user's OID and UPN but does NOT propagate:
-  - App role assignments (roles come from the app registration, not the user)
-  - Custom group-to-brand mappings
-  - Session-scoped policy context
-
-The `apply_obo_constraints()` method explicitly models this degradation,
-reducing the UserContext to the minimum that can be safely inferred
-from OBO claims alone — forcing the caller to re-establish full policy
-context via the Policy Resolver rather than silently inheriting it.
-"""
-
 from __future__ import annotations
 
 import logging
@@ -52,11 +11,6 @@ logger = logging.getLogger(__name__)
 
 
 class EntraClaimMapper:
-    """
-    Maps EntraTokenClaims → UserContext.
-
-    Instantiate once and reuse across requests.
-    """
 
     def __init__(self, config: EntraConfig) -> None:
         self._config = config
@@ -68,35 +22,15 @@ class EntraClaimMapper:
         claims: EntraTokenClaims,
         override_brand_scope: Optional[list[str]] = None,
     ) -> UserContext:
-        """
-        Map validated Entra token claims to a UserContext.
 
-        Args:
-            claims:               Validated token claims from EntraTokenValidator
-            override_brand_scope: If provided, use this brand scope instead of
-                                  deriving it from group claims. Useful when the
-                                  caller has additional context (e.g. a UI picker).
-
-        Returns:
-            UserContext ready for use in the governance framework.
-
-        Raises:
-            ValueError — if the token is app-only (no user identity) and cannot
-                         be mapped to a user context.
-        """
         if claims.is_app_only:
-            raise ValueError(
-                "Cannot map an app-only (Managed Identity / client credentials) token "
-                "to a UserContext. App-only tokens have no user identity. "
-                "Use map_to_agent_principal() instead, or require OBO delegation "
-                "to carry the user's identity forward."
-            )
+            raise ValueError("app-only token has no user identity — use map_to_agent_principal()")
 
         # user_id: use OID as the canonical, immutable identifier.
         # UPN can change (username renames); OID never does.
         user_id = claims.oid or claims.subject
         if not user_id:
-            raise ValueError("Token has no 'oid' or 'sub' claim — cannot establish user identity.")
+            raise ValueError("no oid/sub claim in token")
 
         # Brand scope: derive from group memberships
         if override_brand_scope is not None:
@@ -132,16 +66,7 @@ class EntraClaimMapper:
         return user_ctx
 
     def map_to_agent_principal(self, claims: EntraTokenClaims) -> dict:
-        """
-        Map an app-only token to an agent principal dict.
-
-        Used when an LLM agent authenticates using Managed Identity or
-        client credentials (no user context). Returns raw metadata only —
-        this does NOT produce a UserContext because there is no user.
-
-        The caller must explicitly construct an AgentContext with appropriate
-        permission ceilings based on the service principal's role.
-        """
+        # app-only token — no UserContext possible, return raw metadata
         return {
             "service_principal_oid": claims.oid,
             "app_id": claims.app_id,
@@ -203,17 +128,7 @@ class EntraClaimMapper:
     # ── Private helpers ───────────────────────────────────────────────────────
 
     def _resolve_brand_scope(self, claims: EntraTokenClaims) -> list[str]:
-        """
-        Derive brand_scope from Entra group memberships.
 
-        Walks the user's group list (OIDs or display names) against the
-        brand_group_map in config. Returns the union of all matched brands,
-        deduplicated and sorted.
-
-        If the user has groups overage (>200 groups), groups are absent
-        from the token — warn and return empty (fail-closed). Production
-        systems should fetch groups via Microsoft Graph in this case.
-        """
         if claims.has_groups_overage:
             logger.warning(
                 "Groups overage for oid=%s — groups not in token. "
@@ -241,13 +156,7 @@ class EntraClaimMapper:
         return sorted(brand_scope)
 
     def _resolve_clearance_level(self, claims: EntraTokenClaims) -> SensitivityLevel:
-        """
-        Derive clearance_level from Entra app roles.
-
-        Applies the highest sensitivity level matched across all assigned roles.
-        Defaults to INTERNAL if no roles match (fail-closed: no app role
-        assignment means minimum access, not maximum).
-        """
+        # no match = INTERNAL (minimum) — fail closed
         level = SensitivityLevel.INTERNAL  # Default — minimum access
 
         for role in claims.roles:
