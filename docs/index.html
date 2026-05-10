@@ -732,7 +732,7 @@ footer {
       </p>
 
       <p>
-        This repository is a Python reference implementation of a distinct architectural model in which governance policy originates exclusively in the data catalog, is enforced at the orchestration layer through policy-driven agent selection, and is carried into every data source call as a cryptographically signed, operation-scoped proof of prior authorization. The MCP server becomes a pure access enforcer, never a decision point.
+        This repository is a Python reference implementation of an architectural model in which governance policy originates exclusively in the data catalog, is enforced at the orchestration layer through policy-driven agent selection, and is carried into every data source call as a cryptographically signed, operation-scoped proof of prior authorization. The MCP server becomes a pure access enforcer, never a decision point.
       </p>
 
       <div class="callout">
@@ -802,15 +802,15 @@ footer {
         </div>
         <div class="proof-row">
           <div class="proof-key">Single-use, non-delegable, per-query tokens</div>
-          <div class="proof-val">Standard session tokens are reusable, delegable, and scoped to a resource not a query. Here each token is issued for one specific data operation, is single-use (replay protection at the enforcer), non-delegable (agent ID bound in the payload), and expires in seconds. This is a tighter scope than any of the prior art systems described above.</div>
+          <div class="proof-val">Standard session tokens are reusable, delegable, and scoped to a resource not a query. Here each token is issued for one specific data operation, is single-use (replay protection at the enforcer), non-delegable (agent ID bound in the payload), and expires in seconds. This is a tighter scope than the credential systems typically deployed in production — most tokens are session-scoped and reusable.</div>
         </div>
         <div class="proof-row">
           <div class="proof-key">MCP as enforcement substrate</div>
-          <div class="proof-val">The Model Context Protocol is the emerging standard for how LLM agents call tools and data sources. This framework applies the PDP/PEP split specifically to MCP tool calls — treating the MCP server as a pure enforcement point that verifies a signed token before executing any data operation. This application to MCP is new.</div>
+          <div class="proof-val">The Model Context Protocol is the emerging standard for how LLM agents call tools and data sources. This framework applies the PDP/PEP split specifically to MCP tool calls — treating the MCP server as a pure enforcement point that verifies a signed token before executing any data operation. This is an active area as MCP adoption grows in enterprise settings.</div>
         </div>
         <div class="proof-row">
           <div class="proof-key">Ten LLM-specific failure modes</div>
-          <div class="proof-val">The failure mode taxonomy addresses risks that do not exist in traditional API governance: cross-call aggregation (agent correlates results across permitted calls in its context window), context leakage between agent hops, prompt injection via retrieved data hijacking tool calls, GPU KV cache cross-tenant contamination, and OBO delegation silently dropping policy context in multi-agent chains. These are LLM-native attack surfaces with no equivalent in the XACML / Ranger / OPA threat model.</div>
+          <div class="proof-val">The failure mode taxonomy addresses risks that do not exist in traditional API governance: cross-call aggregation (agent correlates results across permitted calls in its context window), context leakage between agent hops, prompt injection via retrieved data hijacking tool calls, GPU KV cache cross-tenant contamination, and OBO delegation silently dropping policy context in multi-agent chains. Most of these attack surfaces have no direct equivalent in traditional API governance — cross-call aggregation and context window leakage in particular are novel to LLM agent architectures.</div>
         </div>
         <div class="proof-row">
           <div class="proof-key">Entra ID OBO degradation modelling</div>
