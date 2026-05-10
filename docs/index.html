@@ -736,7 +736,7 @@ footer {
       </p>
 
       <div class="callout">
-        <span class="callout-label">Crux of the matter</span>
+        <span class="callout-label">Core thesis</span>
         <p>The fundamental error in today's agent access control architectures is that they grant access to a <strong>source</strong>, not to a <strong>query</strong>. A token proves identity; it does not prove that the specific query being executed is policy-compliant. True agent access control requires that every tool call carries a pre-validated, signed proof that the query itself — not merely the agent — has been authorized.</p>
       </div>
 
@@ -1108,6 +1108,23 @@ python examples/demo_entra_auth.py</code></pre>
 </div><!-- /.page-body -->
 
 <!-- ── Footer ── -->
+<section style="background:#fafafa;border-top:1px solid var(--border);padding:40px 28px;">
+  <div style="max-width:var(--max-w);margin:0 auto;">
+    <div style="max-width:740px;">
+      <p style="font-size:0.72rem;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:var(--text-3);margin-bottom:14px;">Disclaimer &amp; Open Collaboration</p>
+      <p style="font-size:0.875rem;color:var(--text-2);line-height:1.75;margin-bottom:12px;">
+        This work makes no claim of originality. The architectural patterns described here — PDP/PEP separation, catalog-as-governance-authority, signed short-lived authorization artifacts — are well-established in the field and predated by two decades of prior art, as documented in the <a href="#prior-art">Standing on Established Foundations</a> section above. The implementation is offered as a reference application of these patterns to LLM agent systems, not as a novel invention.
+      </p>
+      <p style="font-size:0.875rem;color:var(--text-2);line-height:1.75;margin-bottom:12px;">
+        If any part of this work overlaps with your own published or unpublished research, prior implementations, or proprietary concepts, that overlap is unintentional. The author welcomes direct contact to discuss attribution, collaboration, or any concerns about prior art not already acknowledged here.
+      </p>
+      <p style="font-size:0.875rem;color:var(--text-2);line-height:1.75;">
+        This repository and its contents are shared in the spirit of open technical discussion. Nothing here constitutes a legal claim, patent assertion, or representation of exclusive ownership over any concept, pattern, or technique described. Feedback, corrections, and contributions are welcome via <a href="https://github.com/sanjdow/agentic_governance/issues" target="_blank" rel="noopener">GitHub Issues</a>.
+      </p>
+    </div>
+  </div>
+</section>
+
 <footer>
   <div class="footer-inner">
     <div class="footer-top">
