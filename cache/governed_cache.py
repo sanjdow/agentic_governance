@@ -1,30 +1,3 @@
-"""
-cache/governed_cache.py
------------------------
-Governed Cache: Identity-scoped, policy-version-bound, classification-aware.
-
-Problems addressed:
-  1. Cached tool results carry zero classification metadata
-  2. Cache keys rarely incorporate user identity — enabling cross-user hits
-  3. TTL is the only control; policy changes don't invalidate stale entries
-  4. Sensitive governed data sits in Redis in plaintext by default
-
-This implementation wraps Redis (or fakeredis for testing) with:
-  - Identity-scoped cache keys (user_id + agent_id + query_hash)
-  - Policy-version binding (cached entries are invalidated on policy change)
-  - Classification-aware TTLs (sensitive data expires faster)
-  - Transparent at-rest encryption using Fernet symmetric encryption
-  - Automatic invalidation on policy version change
-
-Cache Key Structure:
-  governed:{policy_version_prefix}:{user_id}:{agent_id}:{query_hash}
-
-This ensures:
-  - Agent A's results are NEVER served to Agent B (different agent_id)
-  - User X's results are NEVER served to User Y (different user_id)
-  - Results from an old policy version are NEVER served after a policy change
-"""
-
 from __future__ import annotations
 
 import hashlib
@@ -103,7 +76,6 @@ class GovernedCache:
             self._fernet = None
             logger.warning("GovernedCache: at-rest encryption DISABLED — not suitable for production")
 
-    # ── Public Interface ──────────────────────────────────────────────────────
 
     def set(
         self,
@@ -235,7 +207,6 @@ class GovernedCache:
             }
         return {"backend": "in-memory"}
 
-    # ── Key Construction ──────────────────────────────────────────────────────
 
     def _build_key(self, user_id: str, agent_id: str, query: str) -> str:
         """

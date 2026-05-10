@@ -1,9 +1,3 @@
-"""
-tests/test_framework.py
------------------------
-Test suite covering all framework components.
-"""
-
 import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -438,7 +432,7 @@ class TestMCPGovernanceServer:
         assert result1.success is True
         result2 = mcp_server.handle_tool_call(call)  # Replay!
         assert result2.success is False
-        assert "already been used" in result2.error
+        assert "already used" in result2.error
 
     def test_filter_injection_into_query(self):
         server = MCPGovernanceServer.__new__(MCPGovernanceServer)
@@ -747,6 +741,14 @@ class TestSessionIsolation:
                 sensitivity=SensitivityLevel.INTERNAL,
             ))
         assert "test_agent" in store._outputs
+
+
+
+# quick regression — was failing silently before _rank() fix
+def test_sensitivity_ordering():
+    assert SensitivityLevel.INTERNAL < SensitivityLevel.CONFIDENTIAL
+    assert SensitivityLevel.CONFIDENTIAL < SensitivityLevel.RESTRICTED
+    assert not (SensitivityLevel.RESTRICTED < SensitivityLevel.RESTRICTED)
 
 
 class TestModelValidation:

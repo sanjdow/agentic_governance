@@ -1,35 +1,3 @@
-"""
-mcp_server/governance_server.py
---------------------------------
-L4 — MCP Governance Server: Access Enforcer — it never decides policy.
-
-The MCP server does NOT evaluate whether a query is permissible.
-That decision has already been made and encoded in the Signed Access Token.
-
-The MCP server:
-  1. Verifies the proof's JWT signature
-  2. Checks proof expiry
-  3. Validates the submitted query matches the proof's query hash
-  4. Verifies the claiming agent matches the proof's agent binding
-  5. Routes to one of two execution paths:
-       a. Filter push-down: translate policy semantics into WHERE clauses
-       b. Authorized query pass-through: execute the pre-validated query unchanged
-
-Policy logic does NOT live here. It never should.
-
-This implements the proposed MCP protocol extension:
-  {
-    "tool": "query_datasource",
-    "arguments": { "source": "...", "query": "..." },
-    "proof": {
-      "token": "<signed JWT>",
-      "issued_by": "policy-resolver.internal",
-      "query_hash": "sha256:...",
-      "expires_at": "..."
-    }
-  }
-"""
-
 from __future__ import annotations
 
 import copy
@@ -84,7 +52,6 @@ class MCPGovernanceServer:
         )
 
     def _record_proof_use(self, token_id: str, expires_at: datetime) -> None:
-        """Record a proof as used, evicting expired or oldest entries."""
         now = datetime.now(timezone.utc)
 
         # Evict expired entries (proofs past their expiry can't be reverified anyway)
@@ -101,7 +68,6 @@ class MCPGovernanceServer:
 
         self._used_token_ids[token_id] = expires_at
 
-    # ── Main Dispatch ─────────────────────────────────────────────────────────
 
     def handle_tool_call(self, call: MCPToolCall) -> MCPToolResult:
         """
@@ -130,7 +96,6 @@ class MCPGovernanceServer:
 
         return self._execute_governed(call)
 
-    # ── Governed Execution Path ───────────────────────────────────────────────
 
     def _execute_governed(self, call: MCPToolCall) -> MCPToolResult:
         """Verify proof, then execute with filter push-down or pass-through."""
@@ -153,20 +118,15 @@ class MCPGovernanceServer:
                 governed=True,
             )
 
-        # Step 2: Replay protection — a proof can only be used once
         if verified_sat.token_id in self._used_token_ids:
             return MCPToolResult(
                 success=False,
-                error=f"Proof '{verified_sat.token_id}' has already been used. "
-                      "Proofs are single-use.",
+                error=f"token {verified_sat.token_id!r} already used",
                 governed=True,
             )
         self._record_proof_use(verified_sat.token_id, verified_sat.expires_at)
 
-        # Step 3: Determine execution path
-        # IMPORTANT: copy filters so we don't mutate the proof's allowed_filters dict.
-        # The pop() of "masked_columns" below would otherwise persist on the proof
-        # object and confuse any subsequent inspection.
+        # deepcopy so we don't mutate the token's filters in place
         filters = copy.deepcopy(verified_sat.allowed_filters)
         masked_columns = filters.pop("masked_columns", [])
 
@@ -260,7 +220,6 @@ class MCPGovernanceServer:
             filters_applied={"masked_columns": masked_columns},
         )
 
-    # ── Ungoverned Path (dev/testing only) ────────────────────────────────────
 
     def _execute_ungoverned(self, call: MCPToolCall) -> MCPToolResult:
         query = call.arguments.get("query", "")
@@ -270,34 +229,11 @@ class MCPGovernanceServer:
         )
         return MCPToolResult(success=True, data=raw_result, governed=False)
 
-    # ── SQL Filter Injection ──────────────────────────────────────────────────
 
     @staticmethod
     def _inject_where_clauses(query: str, filters: dict[str, str]) -> str:
-        """
-        Inject catalog-derived row filters into a SQL query.
-
-        ⚠  IMPORTANT: This is a reference implementation suitable for simple
-        SELECT queries. It uses string manipulation rather than AST parsing
-        and will not handle all of:
-          - Subqueries (the WHERE keyword in a subquery may be matched first)
-          - CTEs (WITH ... AS clauses)
-          - UNION queries (only the first SELECT receives the filter)
-          - Complex CASE/WHEN expressions
-
-        Production deployments MUST replace this with a proper SQL AST parser
-        (sqlglot is recommended) that:
-          1. Parses the query into an AST
-          2. Walks each SELECT subtree
-          3. Augments the WHERE clause of every relevant SELECT with the filters
-          4. Re-serializes the modified AST
-
-        See: https://github.com/tobymao/sqlglot
-
-        For demonstration purposes the simple string injection below is
-        sufficient — but DO NOT deploy this implementation against untrusted
-        queries in production.
-        """
+        # NOTE: string manipulation only — fine for simple SELECTs.
+        # Use sqlglot for CTEs/subqueries in production.
         if not filters:
             return query
 
@@ -341,7 +277,6 @@ class MCPGovernanceServer:
             for row in rows
         ]
 
-    # ── Simulated Data Source ─────────────────────────────────────────────────
 
     @staticmethod
     def _simulate_query_execution(source: str, query: str) -> list[dict[str, Any]]:

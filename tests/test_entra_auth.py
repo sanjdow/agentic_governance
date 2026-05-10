@@ -1,13 +1,3 @@
-"""
-tests/test_entra_auth.py
-------------------------
-Tests for the Entra ID authentication use case.
-
-All tests run without Azure credentials using the test token factory.
-The full token validation → claim mapping → UserContext → governance chain
-is exercised end-to-end.
-"""
-
 import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -93,7 +83,6 @@ def group_session(gateway, factory):
 # ─────────────────────────────────────────────────────────────────────────────
 
 class TestTokenValidation:
-
     def test_valid_user_token_is_accepted(self, gateway, factory):
         token = factory.make_user_token(oid="test-oid", upn="user@example.com")
         claims = gateway.get_claims(f"Bearer {token}")
@@ -153,7 +142,6 @@ class TestTokenValidation:
 # ─────────────────────────────────────────────────────────────────────────────
 
 class TestClaimMapping:
-
     def test_div_analyst_gets_correct_brand_scope(self, primary_session):
         assert primary_session.user.brand_scope == ["brand_b"]
 
@@ -214,7 +202,6 @@ class TestClaimMapping:
 # ─────────────────────────────────────────────────────────────────────────────
 
 class TestOBODelegation:
-
     def test_obo_token_preserves_oid(self, gateway, factory):
         original = {"oid": "original-oid", "sub": "original-oid", "upn": "u@example.com"}
         obo_token = factory.make_obo_token(original, "api://downstream/.default")
@@ -275,7 +262,6 @@ class TestOBODelegation:
 # ─────────────────────────────────────────────────────────────────────────────
 
 class TestEntraGovernanceChain:
-
     QUERY = "SELECT model, defect_code, rate FROM quality.division_defect_rates"
 
     def test_div_analyst_full_chain(self, primary_session, retrieval_agent, resolver, mcp):

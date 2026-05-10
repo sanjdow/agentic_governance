@@ -1,9 +1,4 @@
-"""
-core/models.py
---------------
-Shared data models used across all framework modules.
-These form the contract between layers L1–L4.
-"""
+# Shared data models — the contract between L1-L4.
 
 from __future__ import annotations
 
@@ -17,12 +12,10 @@ from uuid import uuid4
 from pydantic import BaseModel, Field, model_validator
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Enumerations
-# ─────────────────────────────────────────────────────────────────────────────
+
 
 class SensitivityLevel(str, Enum):
-    """Data classification sensitivity levels, ordered low → high."""
+    # ordered low → high
     PUBLIC = "public"
     INTERNAL = "internal"
     CONFIDENTIAL = "confidential"
@@ -58,7 +51,6 @@ class SensitivityLevel(str, Enum):
 
 
 class AccessRight(str, Enum):
-    """Access rights for data assets."""
     READ = "read"
     WRITE = "write"
     AGGREGATE = "aggregate"
@@ -67,14 +59,12 @@ class AccessRight(str, Enum):
 
 
 class AgentStatus(str, Enum):
-    """Agent eligibility status determined by the orchestrator."""
     ELIGIBLE = "eligible"
     INELIGIBLE = "ineligible"
     BLOCKED = "blocked"
 
 
 class InjectionRisk(str, Enum):
-    """Risk level returned by prompt injection detector."""
     NONE = "none"
     LOW = "low"
     MEDIUM = "medium"
@@ -82,9 +72,7 @@ class InjectionRisk(str, Enum):
     CRITICAL = "critical"
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Identity validation helpers
-# ─────────────────────────────────────────────────────────────────────────────
+
 
 # Reject identifiers containing characters that could break SQL filter templates
 # or log injection. Allowed: alphanumeric, underscore, hyphen, dot.
@@ -101,12 +89,9 @@ def _validate_safe_identifier(value: str, field_name: str) -> str:
     return value
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Identity & Session
-# ─────────────────────────────────────────────────────────────────────────────
+
 
 class UserContext(BaseModel):
-    """Represents the authenticated user invoking the agent system."""
     user_id: str
     roles: list[str] = Field(default_factory=list)
     brand_scope: list[str] = Field(default_factory=list)   # e.g. ["brand_b", "brand_a"]
@@ -122,7 +107,6 @@ class UserContext(BaseModel):
 
 
 class AgentContext(BaseModel):
-    """Represents an AI agent within the orchestration graph."""
     agent_id: str
     agent_type: str                          # e.g. "retrieval", "summarisation", "output"
     max_sensitivity: SensitivityLevel = SensitivityLevel.INTERNAL
@@ -136,7 +120,6 @@ class AgentContext(BaseModel):
 
 
 class SessionContext(BaseModel):
-    """Binds a user, session, and request together."""
     session_id: str = Field(default_factory=lambda: str(uuid4()))
     user: UserContext
     request_intent: str                      # Natural language intent
@@ -144,12 +127,9 @@ class SessionContext(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Catalog Types
-# ─────────────────────────────────────────────────────────────────────────────
+
 
 class DataAsset(BaseModel):
-    """A governed data asset registered in the catalog."""
     asset_id: str
     name: str
     source: str                              # e.g. "snowflake", "postgres", "delta_lake"
@@ -166,30 +146,17 @@ class DataAsset(BaseModel):
 
 
 class PolicyVersion(BaseModel):
-    """Tracks the current policy version for proof binding."""
     version_id: str
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     checksum: str = ""
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Signed Access Token
-# ─────────────────────────────────────────────────────────────────────────────
+
 
 class SignedAccessToken(BaseModel):
     """
-    The core artifact of the data access governance model.
-
-    A cryptographically signed, short-lived, operation-scoped, non-delegable proof
-    that a specific query has been validated against catalog policies for a
-    specific user/agent/session context.
-
-    Properties:
-    - Signature:      Issued by Policy Resolver — no agent can self-issue
-    - Query binding:  SHA-256 hash of the canonicalized authorised query embedded
-    - Context binding: user_id + agent_id + session_id + timestamp
-    - Short-lived:    Expiry in seconds to minutes
-    - Non-delegable:  Cannot be passed from one agent to another
+    RS256-signed JWT binding a specific query to a user/agent/session.
+    Single-use, short-lived, non-delegable. Issued by PolicyResolver only.
     """
     token_id: str = Field(default_factory=lambda: str(uuid4()))
     query_hash: str                          # SHA-256 of canonicalized authorised query
@@ -206,20 +173,12 @@ class SignedAccessToken(BaseModel):
 
     @classmethod
     def canonicalize_query(cls, query: str) -> str:
-        """
-        Canonicalize a query for hashing.
-
-        Normalizes whitespace (collapses runs of whitespace to single spaces,
-        strips leading/trailing whitespace) so that semantically identical
-        queries with different formatting produce the same hash.
-
-        Does NOT lower-case — SQL identifiers in quoted form are case-sensitive.
-        """
+        # collapse whitespace — same query different formatting = same hash
+        # intentionally not lowercased, SQL identifiers can be case-sensitive
         return re.sub(r"\s+", " ", query.strip())
 
     @classmethod
     def hash_query(cls, query: str) -> str:
-        """Compute the canonical query hash."""
         canonical = cls.canonicalize_query(query)
         return "sha256:" + hashlib.sha256(canonical.encode()).hexdigest()
 
@@ -227,16 +186,12 @@ class SignedAccessToken(BaseModel):
         return datetime.now(timezone.utc) >= self.expires_at
 
     def matches_query(self, candidate_query: str) -> bool:
-        """Verify the submitted query matches the proof's binding."""
         return self.query_hash == self.hash_query(candidate_query)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Context Governance
-# ─────────────────────────────────────────────────────────────────────────────
+
 
 class ClassifiedChunk(BaseModel):
-    """A content chunk with its detected sensitivity classification."""
     text: str
     sensitivity: SensitivityLevel
     pii_detected: bool = False
@@ -258,13 +213,8 @@ class GovernedContext(BaseModel):
 
     @property
     def safe_text(self) -> str:
-        """
-        Returns the chunks as a string, with redacted chunks replaced by a placeholder.
-
-        Using a placeholder rather than empty string preserves the signal that content
-        was removed — receiving agents can decide how to handle the absence rather than
-        being silently misled into thinking nothing was retrieved.
-        """
+        # placeholder instead of empty string so the receiving agent knows
+        # content was withheld rather than simply not retrieved
         parts = []
         for c in self.chunks:
             if c.redacted:
@@ -274,12 +224,9 @@ class GovernedContext(BaseModel):
         return "\n".join(parts)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Injection Detection
-# ─────────────────────────────────────────────────────────────────────────────
+
 
 class InjectionAssessment(BaseModel):
-    """Result of prompt injection analysis."""
     risk_level: InjectionRisk
     confidence: float = Field(ge=0.0, le=1.0)
     triggered_patterns: list[str] = Field(default_factory=list)
@@ -296,15 +243,10 @@ class InjectionAssessment(BaseModel):
         return self
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# MCP Tool Call
-# ─────────────────────────────────────────────────────────────────────────────
+
 
 class MCPToolCall(BaseModel):
-    """
-    Extended MCP tool call with a mandatory proof field.
-    This is the proposed MCP protocol extension from the governance thesis.
-    """
+    # proof=None means ungoverned call — rejected by MCPGovernanceServer by default
     tool: str
     arguments: dict[str, Any] = Field(default_factory=dict)
     proof: Optional[SignedAccessToken] = None   # None = naive / ungoverned call
@@ -314,7 +256,6 @@ class MCPToolCall(BaseModel):
 
 
 class MCPToolResult(BaseModel):
-    """Result returned by the MCP governance server."""
     success: bool
     data: Any = None
     error: Optional[str] = None

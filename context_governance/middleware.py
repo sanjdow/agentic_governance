@@ -1,27 +1,3 @@
-"""
-context_governance/middleware.py
----------------------------------
-Context Governance Middleware: Inter-agent context classification and scrubbing.
-
-Problem addressed:
-  Data retrieved under a governed, policy-compliant query immediately enters the
-  agent's context window — and exits the governance perimeter. When Agent A passes
-  context to Agent B, sensitive data travels forward in plaintext. Agent B never
-  made a governed call to retrieve it. Agent C may write, email, or surface it
-  through a path no individual policy rule blocked.
-
-This middleware intercepts the output of each agent before it is passed to the
-next, classifies its content against the catalog, and redacts or blocks content
-that exceeds the receiving agent's sensitivity ceiling.
-
-Architecture note:
-  This is the "context governance layer" identified as unsolved in the vendor
-  analysis. This implementation provides the core classification and redaction
-  logic. In production it requires a fast classification model (sub-50ms) to
-  be viable in real-time agent chains. Consider a fine-tuned NER model or
-  a distilled classifier rather than a full LLM for this hop.
-"""
-
 from __future__ import annotations
 
 import logging
@@ -91,18 +67,7 @@ RESTRICTED_KEYWORDS = frozenset([
 
 
 def heuristic_classify(text: str) -> SensitivityLevel:
-    """
-    Classify a text chunk's sensitivity level using heuristic rules.
-
-    Returns the HIGHEST sensitivity level matched across all detection signals,
-    not the first match. This prevents the order-dependence bug where a
-    CONFIDENTIAL keyword match would short-circuit before a RESTRICTED PII
-    pattern was checked.
-
-    In production, replace with a fine-tuned NER/classifier model
-    for higher accuracy. This heuristic approach is deterministic
-    and has zero latency overhead.
-    """
+    # returns highest match across all signals — replace with NER model for better precision
     text_lower = text.lower()
     detected = SensitivityLevel.INTERNAL  # Default baseline (not PUBLIC — assume internal until proven public)
 

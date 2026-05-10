@@ -1,22 +1,3 @@
-"""
-orchestrator/eligibility.py
----------------------------
-L2 — Orchestrator: Policy-driven agent eligibility before invocation.
-
-Before any agent is invoked, the orchestrator resolves which agents are eligible
-given the current user context, session, and request classification — as derived
-from catalog policies.
-
-Non-eligible agents are NEVER activated.
-This is not filtering after the fact; it is exclusion before invocation.
-
-Key problem addressed:
-  Role assignment in multi-agent systems is ambiguous. An agent running under
-  the orchestrator's identity can exceed the invoking user's permissions.
-  This layer forces every agent invocation through a catalog-derived eligibility
-  check that considers user clearance, brand scope, and sensitivity ceilings.
-"""
-
 from __future__ import annotations
 
 import logging

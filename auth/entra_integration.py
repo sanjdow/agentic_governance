@@ -1,44 +1,3 @@
-"""
-auth/entra_integration.py
---------------------------
-High-level integration: Entra ID authentication → governance framework.
-
-This is the entry point for the auth module. It ties together:
-  - EntraTokenValidator (validates the JWT)
-  - EntraClaimMapper    (translates claims to UserContext)
-  - PolicyResolver      (issues Signed Access Tokens with Entra OID embedded)
-
-The resulting SessionContext carries the Entra OID as the user_id throughout
-the governance chain — ensuring that even when downstream components only see
-the Signed Access Token (not the original Bearer token), the identity anchor
-is preserved and tamper-evident.
-
-Key architectural point:
-  Entra ID tells us WHO the user is.
-  The Signed Access Token tells us WHAT they are permitted to query.
-  These are different questions — this module bridges them.
-
-Usage (production):
-    config = EntraConfig.from_env()
-    gateway = EntraAuthGateway(config, catalog)
-
-    # In your FastAPI/MCP HTTP handler:
-    session = gateway.authenticate_request(
-        authorization_header=request.headers.get("Authorization"),
-        request_intent="Retrieve division quality defect rates",
-    )
-    # session.user is a fully-mapped UserContext backed by Entra identity
-    # session.user.user_id is the Entra OID
-
-Usage (testing):
-    config = EntraConfig.for_testing()
-    gateway = EntraAuthGateway.for_testing(config, catalog)
-    factory = gateway.token_factory  # pre-wired test factory
-
-    token = factory.make_user_token(oid="primary-analyst-oid", groups=["Division-A-Analysts"], roles=["DataAnalyst"])
-    session = gateway.authenticate_request(f"Bearer {token}", "Fetch defect rates")
-"""
-
 from __future__ import annotations
 
 import logging
@@ -55,12 +14,6 @@ logger = logging.getLogger(__name__)
 
 
 class EntraAuthGateway:
-    """
-    Entra ID authentication gateway for the governance framework.
-
-    Validates incoming Bearer tokens, maps claims to UserContext,
-    and creates SessionContext objects for use in the governance chain.
-    """
 
     def __init__(
         self,
@@ -88,26 +41,7 @@ class EntraAuthGateway:
         request_intent: str,
         override_brand_scope: Optional[list[str]] = None,
     ) -> SessionContext:
-        """
-        Authenticate an incoming request and return a governance SessionContext.
 
-        Args:
-            authorization_header: HTTP Authorization header value
-                                  ('Bearer <token>' or raw token)
-            request_intent:       Natural language description of what the
-                                  user wants to do — used in audit logs
-            override_brand_scope: Explicit brand scope to use instead of
-                                  deriving from Entra groups. Useful when
-                                  the application has a brand picker UI.
-
-        Returns:
-            SessionContext with a UserContext backed by Entra identity.
-            The UserContext.user_id is the Entra OID.
-
-        Raises:
-            EntraTokenValidationError — if the token is invalid/expired/wrong tenant
-            ValueError — if the token is app-only (no user identity)
-        """
         claims = self._validator.validate_from_header(authorization_header)
         user_ctx = self._mapper.to_user_context(claims, override_brand_scope)
 
@@ -136,22 +70,7 @@ class EntraAuthGateway:
         original_session: Optional[SessionContext],
         request_intent: str,
     ) -> SessionContext:
-        """
-        Authenticate an OBO (On-Behalf-Of) downstream request.
-
-        Validates the OBO token, then applies OBO constraints — reducing the
-        UserContext to the minimum safely inferred from the OBO token, which
-        lacks app role claims.
-
-        Args:
-            obo_authorization_header: Authorization header for the OBO token
-            original_session:         The originating user's full session (optional)
-            request_intent:           What the downstream agent is doing
-
-        Returns:
-            A degraded SessionContext reflecting OBO context loss.
-            The UserContext.metadata["obo_degraded"] will be True.
-        """
+        # OBO loses app roles — context will be degraded (brand_scope=[], clearance=INTERNAL)
         from core.models import SensitivityLevel as _SL
         claims = self._validator.validate_from_header(obo_authorization_header)
 
@@ -185,10 +104,7 @@ class EntraAuthGateway:
         return session
 
     def get_claims(self, authorization_header: str) -> EntraTokenClaims:
-        """
-        Validate a token and return raw claims without creating a session.
-        Useful for inspection, logging, or custom mapping logic.
-        """
+
         return self._validator.validate_from_header(authorization_header)
 
     # ── Factory ───────────────────────────────────────────────────────────────
@@ -199,13 +115,7 @@ class EntraAuthGateway:
         config: Optional[EntraConfig] = None,
         catalog: Optional[DataCatalog] = None,
     ) -> "EntraAuthGateway":
-        """
-        Create a test gateway with a pre-wired token factory.
 
-        Returns a gateway that accepts self-signed test tokens with no
-        Azure credentials. The gateway.token_factory attribute provides
-        the matching factory for generating tokens in tests.
-        """
         from catalog.catalog import build_demo_catalog
 
         cfg = config or EntraConfig.for_testing()

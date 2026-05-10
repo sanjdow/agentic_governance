@@ -1,269 +1,96 @@
-# Code Review — Findings & Changes Applied
-
-## Summary
-
-49 tests passing (up from 38). All identified issues fixed.
-A full review identified 16 issues across the codebase, ranging from critical
-(SQL injection, broken comparison operators) to minor (misleading test names).
-
----
-
-## Critical Issues (Fixed)
-
-### 1. `SensitivityLevel` comparison operators were broken
-**Location:** `core/models.py`
-
-The original implementation only defined `__ge__` properly. `__gt__` was identical
-to `__ge__`, and `__le__`/`__lt__` referenced each other circularly. This meant
-that in the existing code, `confidential > confidential` and `confidential >= confidential`
-both returned `True` — silently masking permission boundary checks.
-
-**Fix:** Implemented all four operators based on a stable `_rank()` method using
-the canonical `_order()` list. Added `TestModelValidation::test_sensitivity_comparison_consistency`
-to lock the behaviour.
-
-### 2. SQL injection vulnerability in row filter templates
-**Location:** `catalog/catalog.py::derive_row_filters`
-
-The `row_filter_template` field was string-formatted with `user_id` and `brand_scope`
-values directly. A user with `user_id="x'; DROP TABLE users--"` would have that
-SQL fragment injected into every query they triggered.
-
-**Fix:**
-- Added `_validate_safe_identifier()` to `core/models.py` that runs as a
-  pydantic `model_validator(mode="after")` on both `UserContext.user_id`,
-  `UserContext.brand_scope[]`, and `AgentContext.agent_id`.
-- Identifiers must match `^[A-Za-z0-9_\-\.]{1,128}$` — anything else is rejected
-  at construction time before any SQL touches the value.
-- Added explicit documentation to `derive_row_filters` noting that production
-  systems should use `sqlglot` AST manipulation rather than string templates.
-- Added three new tests demonstrating injection attempts are rejected:
-  `test_user_id_rejects_sql_injection_attempt`, `test_brand_scope_rejects_sql_injection_attempt`,
-  `test_agent_id_rejects_sql_injection_attempt`.
-
-### 3. Brand-scope-empty allowed access to brand-tagged assets
-**Location:** `catalog/catalog.py::resolve_access`
-
-Original code: `if asset.brand_tags and user.brand_scope:` — meaning a user with
-**no** brand scope (empty list) bypassed the brand intersection check entirely
-and gained access to ALL brand-tagged assets. This is the most dangerous kind
-of fail-open.
-
-**Fix:** Changed to fail-closed semantics. If an asset has any brand tags, the
-user must have a non-empty brand scope that intersects with them. Added test
-`test_brand_scope_empty_denies_brand_tagged_asset`.
-
-### 4. `InjectionAssessment.should_block` validator unreliable
-**Location:** `core/models.py`
-
-The original validator used `mode="before"` and read `info.data.get("risk_level")`
-which only works if `risk_level` is parsed before `should_block`. Field order
-in pydantic isn't guaranteed by source order in all cases — the validator was
-fragile and could silently fail to auto-block on HIGH/CRITICAL risk.
-
-**Fix:** Changed to `model_validator(mode="after")` which runs after all fields
-are populated. Used `object.__setattr__` to set the field, since by post-validation
-the model state is guaranteed.
-
-### 5. Catalog policy version didn't change on consent updates
-**Location:** `catalog/catalog.py::_compute_version`
-
-`record_consent()` triggered a version recompute, but `_compute_version()` only
-hashed the `_assets` dict — not `_consent_state`. Result: revoking consent did
-not invalidate cached entries or trigger proof re-issuance. A user who withdrew
-consent could still have their data served from cache for the full TTL window.
-
-**Fix:** `_compute_version` now hashes both the asset registry AND the consent
-state, sorted deterministically. Consent withdrawal now correctly bumps the
-policy version, which evicts cached entries and invalidates outstanding proofs.
-
----
-
-## High-Severity Issues (Fixed)
-
-### 6. MCP server replay protection set was unbounded
-**Location:** `mcp_server/governance_server.py`
-
-`_used_token_ids` was a `set` that only ever grew. In a long-running deployment
-this is a memory leak, and there was no eviction logic at all.
-
-**Fix:**
-- Changed to `dict[str, datetime]` mapping `token_id → expires_at`.
-- Added `_record_proof_use()` method that:
-  - Evicts entries whose proof expiry has passed (those proofs can't be
-    re-verified anyway, so tracking them adds no security)
-  - Caps the dict at `max_replay_cache_size` (default 100K), evicting oldest
-    entries FIFO when full
-- Production note added: distributed deployments should use Redis with TTLs.
-
-### 7. `revoke_session_tokens` was broken
-**Location:** `policy_resolver/resolver.py`
-
-Original implementation added `f"session:{session_id}"` as a sentinel string
-to `_revoked_proofs`, but `verify_token` only checked `token_id in self._revoked_proofs`
-— it never looked for the sentinel. Session-level revocation silently failed.
-
-**Fix:**
-- Added separate `_revoked_sessions: set[str]` tracking session-level revocation.
-- `verify_token` now extracts `session_id` from the JWT payload and checks both
-  `_revoked_proofs` (per-proof) and `_revoked_sessions` (session-wide).
-- Added `_proof_session_index` mapping for diagnostics.
-- New test `test_session_revocation` confirms the fix.
-
-### 8. MCP server mutated the proof's `allowed_filters` dict during execution
-**Location:** `mcp_server/governance_server.py::_execute_governed`
-
-`filters = verified_sat.allowed_filters` then `filters.pop("masked_columns", [])`
-mutated the dict in-place on the verified_sat object. Any subsequent inspection
-of the proof (logging, audit trail) would show altered filters that don't match
-what was actually issued.
-
-**Fix:** Use `copy.deepcopy(verified_sat.allowed_filters)` before pop.
-Added test `test_proof_filters_not_mutated_by_execution` that snapshots the
-proof's filters, executes the call, and asserts the proof is unchanged.
-
-### 9. Heuristic classifier short-circuited on first match
-**Location:** `context_governance/middleware.py::heuristic_classify`
-
-The original loop returned immediately on the first PII pattern match. If text
-contained both an email address (CONFIDENTIAL) and a salary keyword (RESTRICTED),
-the iteration order of `PII_PATTERNS` decided which classification was returned —
-typically the lower one, which is the dangerous direction for fail-closed behaviour.
-
-**Fix:** Refactored to scan ALL patterns and keyword lists, tracking the highest
-sensitivity seen. Returns the maximum match, never short-circuits on a lower one.
-Added test `test_classifier_returns_highest_sensitivity_match` with a mixed-signal
-input that previously misclassified.
-
----
-
-## Medium-Severity Issues (Fixed)
-
-### 10. SQL filter injection didn't handle `ORDER BY` correctly
-**Location:** `mcp_server/governance_server.py::_inject_where_clauses`
-
-The original used `query_upper.index("WHERE")` which fails on queries with WHERE
-inside subqueries. Also inserted WHERE clauses with poor whitespace handling that
-could produce malformed SQL when followed by ORDER BY/GROUP BY/LIMIT.
-
-**Fix:**
-- Switched to regex with `\bWHERE\b` word boundary matching to avoid matching
-  WHERE substrings inside identifiers.
-- Improved trailing-keyword detection to find the EARLIEST of GROUP BY/HAVING/
-  ORDER BY/LIMIT/OFFSET and insert WHERE before it.
-- Added explicit documentation that this is a reference implementation and
-  production systems MUST use sqlglot for AST-based SQL manipulation.
-- Added two new tests: `test_filter_injection_with_existing_where` and
-  `test_filter_injection_with_order_by`.
-
-### 11. `safe_text` returned empty string when all chunks were redacted
-**Location:** `core/models.py::GovernedContext.safe_text`
-
-Filtering `if not c.redacted` and joining with `\n` produced an empty string
-when everything was redacted. A receiving agent then sees no context at all
-and may make spurious decisions thinking the upstream agent produced nothing.
-
-**Fix:** Redacted chunks are now replaced with the placeholder string
-`[redacted: content above receiving agent's clearance]` so the receiving agent
-has a clear signal that content existed but was withheld.
-
-### 12. Query hash was not whitespace-canonical
-**Location:** `core/models.py::SignedAccessToken.hash_query`
-
-Two semantically identical queries with different formatting (extra spaces,
-line breaks) produced different hashes, causing legitimate queries to fail
-verification when reformatted by intermediate layers.
-
-**Fix:** Added `canonicalize_query()` classmethod that collapses runs of
-whitespace and strips leading/trailing whitespace before hashing. Does NOT
-lower-case (SQL identifiers can be case-sensitive). Added test
-`test_query_canonicalization_whitespace_insensitive`.
-
----
-
-## Minor Issues (Fixed)
-
-### 13. Misleading test name
-**Location:** `tests/test_framework.py`
-
-`test_brand_scope_access_denied_wrong_brand` asserted the access was *granted*
-(division user with division brand-tagged asset). The test was correct, the name was
-inverted.
-
-**Fix:** Renamed to `test_brand_scope_intersection_grants_access` and added a
-genuinely access-denied test as a separate case.
-
-### 14. Confusing illustrative `row_filter_template` in demo catalog
-**Location:** `catalog/catalog.py::build_demo_catalog`
-
-The demo catalog used `row_filter_template="department = '{user_id}'"` for
-employee data, which suggested user_id should equal department name. Misleading.
-
-**Fix:** Removed the illustrative template. The brand_filter from `derive_row_filters`
-is sufficient for the demo. Added a comment noting production systems should
-use sqlglot.
-
-### 15. `KeyError` on bad row_filter_template
-**Location:** `catalog/catalog.py::derive_row_filters`
-
-`asset.row_filter_template.format(...)` would raise a raw `KeyError` if the
-template referenced an unknown placeholder. This bubbled up as an unhandled
-exception with no diagnostic context.
-
-**Fix:** Wrapped in try/except, raising a `PolicyResolutionError` with a clear
-message naming the asset and the unknown placeholder.
-
-### 16. `AccessRight.AGGREGATE` defined but never enforced
-**Location:** `core/models.py` and various
-
-`AGGREGATE` was in the enum but no code path checked for it. Documented
-this in the module — it's reserved for future use by COUNT/SUM/AVG-only
-agents that should not see raw rows.
-
----
-
-## Issues Identified But Not Fixed (Production Concerns)
-
-These are documented in the code but require infrastructure changes outside
-the Python library:
-
-### A. RSA key rotation
-The `PolicyResolver` generates a fresh keypair per instance. Production needs
-key rotation, an HSM/KMS, and a key ID (`kid`) header in JWTs so MCP servers
-can locate the verifying key for each token.
-
-### B. Distributed revocation store
-`_revoked_proofs` and `_revoked_sessions` are in-process sets. A multi-instance
-deployment needs Redis or DynamoDB for revocation state, otherwise a revoked
-proof is still valid on instances that haven't seen the revocation.
-
-### C. Heuristic classifier accuracy
-The pattern-based classifier has high recall but low precision. Production
-should use a fine-tuned NER model (spaCy with custom entities, or a distilled
-BERT classifier) for sub-50ms latency at higher accuracy.
-
-### D. SQL AST parsing
-Filter push-down via string manipulation is fundamentally unsafe for complex
-queries. Production must use sqlglot to parse, walk, and rewrite the AST.
-
-### E. KV cache infrastructure isolation
-This is the broadest open problem. Documented in README — requires
-infrastructure-layer controls (per-tenant inference endpoints, disabled prefix
-caching for sensitive workloads) that no Python library can solve.
-
----
-
-## Test Coverage Summary
-
-| Category | Tests | Status |
-|---|---|---|
-| Catalog (L1) | 9 | ✓ |
-| Eligibility (L2) | 3 | ✓ |
-| Policy Resolver (L3) | 8 | ✓ |
-| MCP Server (L4) | 7 | ✓ |
-| Context Governance | 4 | ✓ |
-| Injection Detection | 5 | ✓ |
-| Governed Cache | 5 | ✓ |
-| Session Isolation | 3 | ✓ |
-| Model Validation (new) | 5 | ✓ |
-| **Total** | **49** | **All passing** |
+# Changelog
+
+## [Unreleased]
+
+### Added
+- Entra ID authentication module (`auth/`) — JWKS-based JWT validation, group→scope
+  and role→clearance mapping, OBO degradation modelling via `apply_obo_constraints()`
+- `EntraAuthGateway.for_testing()` — self-signed test token factory so the full
+  auth pipeline runs without Azure credentials
+- `revoke_session_tokens()` on PolicyResolver — session-wide revocation now actually
+  works (was silently a no-op before, see fixes below)
+- Overlapping chunk windows in context governance classifier to prevent PII detection
+  being defeated by chunk boundaries
+- `canonicalize_query()` on SignedAccessToken — whitespace-normalises before hashing
+  so reformatted-but-identical queries don't fail verification
+- 26 new tests covering Entra auth flows, OBO degradation, SQL injection guards,
+  session revocation, and classifier edge cases
+
+### Fixed
+- **`SensitivityLevel` comparisons were wrong.** `__gt__` and `__ge__` returned the
+  same result, so `CONFIDENTIAL > CONFIDENTIAL` was `True`. Clearance ceiling checks
+  were silently passing when they shouldn't. Rewrote all four operators using `_rank()`.
+- **SQL injection through `user_id` and `brand_scope`.** These were string-formatted
+  directly into row filter templates. Added `_validate_safe_identifier()` on
+  `UserContext` and `AgentContext` — rejects anything outside `[A-Za-z0-9_\-\.]`.
+- **Empty brand scope granted access to brand-tagged assets.** The condition
+  `if asset.brand_tags and user.brand_scope:` silently skipped the intersection
+  check when a user had no brand scope at all, giving them access to everything.
+  Changed to fail-closed: brand-tagged asset + no brand scope = denied.
+- `InjectionAssessment.should_block` didn't reliably auto-set on HIGH/CRITICAL.
+  Was using `mode="before"` which ran before `risk_level` was guaranteed to be
+  populated. Moved to `model_validator(mode="after")`.
+- Consent withdrawal didn't bump the policy version. `_compute_version()` only
+  hashed `_assets`, not `_consent_state`. A user revoking consent could still be
+  served cached data for the full TTL window. Version checksum now covers both.
+- Replay protection set grew without bound. `_used_token_ids` was a bare `set`
+  with no eviction. Replaced with `dict[str, datetime]` keyed by expiry; entries
+  evicted on expiry or when the dict exceeds `max_replay_cache_size`.
+- Session revocation was a no-op. `revoke_session_tokens()` added a sentinel
+  string to `_revoked_tokens` but `verify_token()` never checked for it. Added
+  `_revoked_sessions: set[str]` and the corresponding check in verify.
+- MCP server mutated the token's `allowed_filters` in place. `filters.pop()`
+  was called directly on `verified_sat.allowed_filters`, corrupting the object for
+  anything inspecting it afterwards (logging, audit). Fixed with `copy.deepcopy()`.
+- Heuristic classifier returned first PII match, not highest. Text containing
+  both an email (CONFIDENTIAL) and a salary field (RESTRICTED) would return
+  whichever pattern matched first. Refactored to scan all patterns and return max.
+- SQL filter injection broke on subqueries and `ORDER BY`. `str.index("WHERE")`
+  found the first occurrence regardless of context. Switched to `\bWHERE\b` regex
+  and reworked the trailing-keyword insertion logic.
+- `safe_text` returned empty string when everything was redacted. A downstream
+  agent receiving empty context had no way to know content existed but was withheld.
+  Redacted chunks now replaced with `[redacted: content above receiving agent's clearance]`.
+- `KeyError` on malformed row filter templates. Bare `str.format()` raised
+  `KeyError` when a template referenced an unknown placeholder. Wrapped in
+  try/except and reraised as `PolicyResolutionError` with the asset ID and key name.
+
+### Changed
+- Renamed coined terms throughout to avoid overlap with third-party terminology:
+  `AuthorizedQueryProof` → `SignedAccessToken`, `ProofVerificationError` →
+  `TokenVerificationError`, `request_proof` → `request_token`, etc.
+- Framework name: `Agentic Governance Framework` → `Agent Data Access Governance Framework`
+- `_compute_version()` now includes consent state in its checksum
+- Demo catalog row filter templates removed — were misleading about how `user_id`
+  maps to SQL predicates
+
+### Known limitations (not fixed — need infrastructure)
+- RSA keypair is generated per-instance. Production needs KMS + `kid` header in JWTs.
+- Revocation state is in-process. Multi-instance deployments need Redis or DynamoDB.
+- Context classifier is pattern-based (high recall, low precision). A fine-tuned NER
+  model would be better but that's a separate project.
+- SQL filter push-down uses string manipulation, not AST. Safe for simple SELECTs,
+  not for CTEs or subqueries. Use sqlglot in production.
+- GPU KV cache isolation is an infrastructure problem this library can't solve.
+
+
+## [0.1.0] — 2026-04-03
+
+Initial implementation.
+
+- Four-layer governance model: data catalog (L1), agent eligibility (L2),
+  policy resolver (L3), MCP enforcement (L4)
+- `SignedAccessToken` — RS256-signed JWT bound to query hash, user, agent, session,
+  and catalog policy version. Single-use, 120s TTL, non-delegable.
+- `DataCatalog` with sensitivity classifications, access rights, PII column lists,
+  consent state, and deterministic policy versioning
+- `AgentEligibilityResolver` — blocks ineligible agents before invocation
+- `MCPGovernanceServer` — pure enforcement: verifies token, applies row filters,
+  masks columns. Never decides policy.
+- `ContextGovernanceMiddleware` — heuristic PII classifier, redacts inter-agent
+  context above receiving agent's clearance ceiling
+- `InjectionDetector` — 4-layer prompt injection detection before tool dispatch
+- `GovernedCache` — identity-scoped Redis wrapper with Fernet encryption and
+  policy-version-bound TTLs
+- `SessionStateStore` — need-to-know context isolation between agent hops
+- 54 tests

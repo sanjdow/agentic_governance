@@ -1,21 +1,4 @@
-"""
-policy_resolver/resolver.py
----------------------------
-L3 — Policy Resolver: Issues Signed Access Tokens.
 
-This is the architectural heart of the data access governance model.
-
-An agent expresses intent. The Policy Resolver:
-  1. Looks up the data assets touched by the query
-  2. Validates the query against catalog-derived access rights
-  3. Derives row/column filters from catalog policy
-  4. Issues an Signed Access Token: a cryptographically signed,
-     short-lived document binding the specific query to the user identity,
-     agent identity, session, and policy version at the time of issuance.
-
-The query hash is binding — any modification is detected. Each token is single-use.
-No agent can self-issue a proof.
-"""
 
 from __future__ import annotations
 
@@ -48,17 +31,9 @@ logger = logging.getLogger(__name__)
 
 
 class PolicyResolver:
-    """
-    Issues and validates Signed Access Tokens.
+    # private key never leaves this class — use KMS in production
 
-    Uses RS256 asymmetric signing — the private key stays in the resolver,
-    the public key is distributed to MCP enforcement servers.
-
-    In production, the private key should be stored in a HSM or secrets manager
-    (AWS Secrets Manager, Azure Key Vault, HashiCorp Vault).
-    """
-
-    DEFAULT_PROOF_TTL_SECONDS = 120   # 2 minutes — short-lived by design
+    DEFAULT_PROOF_TTL_SECONDS = 120
 
     def __init__(
         self,
@@ -68,19 +43,14 @@ class PolicyResolver:
         self._catalog = catalog
         self._proof_ttl = proof_ttl_seconds
         self._private_key, self._public_key = self._generate_keypair()
-        # Direct revocation: set of revoked token_ids
         self._revoked_proofs: set[str] = set()
-        # Session-level revocation: if a session_id is here, all proofs
-        # issued under that session are considered revoked
         self._revoked_sessions: set[str] = set()
-        # Track issued token_id → session_id so revoke_session_tokens can act
         self._proof_session_index: dict[str, str] = {}
         logger.info("PolicyResolver initialized with %ds proof TTL", proof_ttl_seconds)
 
-    # ── Key Management ────────────────────────────────────────────────────────
 
     def _generate_keypair(self) -> tuple[rsa.RSAPrivateKey, rsa.RSAPublicKey]:
-        """Generate an in-process RSA keypair. Replace with HSM in production."""
+    
         private_key = rsa.generate_private_key(
             public_exponent=65537,
             key_size=2048,
@@ -89,13 +59,12 @@ class PolicyResolver:
 
     @property
     def public_key_pem(self) -> str:
-        """PEM-encoded public key for distribution to MCP enforcement servers."""
+    
         return self._public_key.public_bytes(
             encoding=serialization.Encoding.PEM,
             format=serialization.PublicFormat.SubjectPublicKeyInfo,
         ).decode()
 
-    # ── Proof Issuance ────────────────────────────────────────────────────────
 
     def request_token(
         self,
@@ -105,19 +74,7 @@ class PolicyResolver:
         asset_ids: list[str],
         required_right: AccessRight = AccessRight.READ,
     ) -> SignedAccessToken:
-        """
-        Core method: validate a query and issue an Signed Access Token.
 
-        Steps:
-          1. Resolve access for each asset against catalog policy
-          2. Derive row/column filters
-          3. Issue and sign the proof JWT
-
-        Raises:
-          QueryAccessDeniedError — if any asset access is denied
-          ConsentBlockedError    — if PII consent is missing
-          AssetNotFoundError     — if an asset_id is not in the catalog
-        """
         user = session.user
 
         all_filters: dict[str, str] = {}
@@ -126,7 +83,6 @@ class PolicyResolver:
         for asset_id in asset_ids:
             asset = self._catalog.get_asset(asset_id)
 
-            # Policy decision: does this user+agent have access?
             allowed, reason = self._catalog.resolve_access(
                 user=user,
                 agent=agent,
@@ -142,7 +98,6 @@ class PolicyResolver:
                     f"Query denied for asset '{asset_id}': {reason}"
                 )
 
-            # Derive filters — these will be embedded in the proof
             filters = self._catalog.derive_row_filters(user, asset)
             all_filters.update(filters)
             masked = self._catalog.derive_column_mask(user, asset)
@@ -153,7 +108,6 @@ class PolicyResolver:
                 user.user_id, asset_id, filters,
             )
 
-        # Build and sign the proof
         policy_version = self._catalog.get_policy_version()
         now = datetime.now(timezone.utc)
         expires_at = now + timedelta(seconds=self._proof_ttl)
@@ -180,7 +134,7 @@ class PolicyResolver:
         return proof
 
     def _sign_proof(self, proof: SignedAccessToken) -> str:
-        """Sign the proof as a JWT using RS256."""
+    
         private_key_pem = self._private_key.private_bytes(
             encoding=serialization.Encoding.PEM,
             format=serialization.PrivateFormat.PKCS8,
@@ -201,7 +155,6 @@ class PolicyResolver:
         }
         return jwt.encode(payload, private_key_pem, algorithm="RS256")
 
-    # ── Proof Verification ────────────────────────────────────────────────────
 
     def verify_token(
         self,
@@ -209,21 +162,7 @@ class PolicyResolver:
         submitted_query: str,
         claiming_agent_id: str,
     ) -> SignedAccessToken:
-        """
-        Verify a proof token.
-
-        Called by the MCP enforcement server before executing any query.
-
-        Checks:
-          1. JWT signature validity   → TokenVerificationError
-          2. Expiry                   → TokenExpiredError
-          3. Direct/session revocation → TokenRevocationError
-          4. Agent identity (non-delegable) → TokenDelegationError
-          5. Query hash match          → TokenQueryMismatchError
-
-        All five exceptions inherit from TokenVerificationError, so callers
-        that don't care about the specific reason can catch the base class.
-        """
+        # raises TokenVerificationError subclasses — catch base class if you don't care why
         public_key_pem = self._public_key.public_bytes(
             encoding=serialization.Encoding.PEM,
             format=serialization.PublicFormat.SubjectPublicKeyInfo,
@@ -238,39 +177,24 @@ class PolicyResolver:
         except jwt.ExpiredSignatureError:
             raise TokenExpiredError("Proof has expired.")
         except jwt.InvalidTokenError as e:
-            raise TokenVerificationError(f"Proof signature invalid: {e}")
+            raise TokenVerificationError(f"invalid token: {e}")
 
         token_id = payload["jti"]
         session_id = payload["session_id"]
 
-        # Direct proof revocation
         if token_id in self._revoked_proofs:
             raise TokenRevocationError(f"Proof '{token_id}' has been revoked.")
 
-        # Session-level revocation (e.g. mid-session policy change)
         if session_id in self._revoked_sessions:
-            raise TokenRevocationError(
-                f"Session '{session_id}' has been revoked — "
-                "all proofs from this session are invalid. "
-                "A new session must be established."
-            )
+            raise TokenRevocationError(f"session {session_id!r} revoked")
 
-        # Non-delegable: the agent using the proof must be the one it was issued for
         if payload["agent_id"] != claiming_agent_id:
-            raise TokenDelegationError(
-                f"Proof was issued for agent '{payload['agent_id']}', "
-                f"not '{claiming_agent_id}'. Proofs are non-delegable."
-            )
+            raise TokenDelegationError(f"token issued for {payload['agent_id']!r}, not {claiming_agent_id!r}")
 
-        # Query hash binding
         expected_hash = SignedAccessToken.hash_query(submitted_query)
         if payload["query_hash"] != expected_hash:
-            raise TokenQueryMismatchError(
-                "Submitted query does not match the proof's query hash. "
-                "Query substitution detected."
-            )
+            raise TokenQueryMismatchError("query hash mismatch")
 
-        # Reconstruct proof object for downstream use
         return SignedAccessToken(
             token_id=token_id,
             query_hash=payload["query_hash"],
@@ -286,25 +210,13 @@ class PolicyResolver:
             token=token,
         )
 
-    # ── Revocation ────────────────────────────────────────────────────────────
 
     def revoke_token(self, token_id: str) -> None:
-        """
-        Explicitly revoke a single proof.
-
-        In production this should write to a distributed revocation store
-        (Redis, DynamoDB) that all MCP servers can query.
-        """
+        # TODO: write to distributed revocation store in production
         self._revoked_proofs.add(token_id)
         logger.warning("Proof revoked: token_id=%s", token_id)
 
     def revoke_session_tokens(self, session_id: str) -> None:
-        """
-        Mark all proofs for a session as revoked.
 
-        Used on policy updates that should invalidate any in-flight
-        agent activity in the affected session. Subsequent verification
-        of any proof issued under this session will fail.
-        """
         self._revoked_sessions.add(session_id)
         logger.warning("All proofs revoked for session=%s", session_id)
